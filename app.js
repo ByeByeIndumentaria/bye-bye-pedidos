@@ -15,6 +15,14 @@ function quitarAcentos(t) {
 function norm(t) {
   return quitarAcentos(String(t || "")).toLowerCase().trim();
 }
+function escaparHTML(t) {
+  return String(t || "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
 // Similitud simple entre dos textos (para el asistente de matching):
 // cuenta palabras en común ponderadas por longitud, 0..1.
 function similitud(a, b) {
@@ -284,6 +292,11 @@ function seleccionarItem(it) {
 
   elResultados.classList.remove("visible");
   renderCurvaCaja(it);
+  const observacionItem = document.getElementById("in-observacion-item");
+  observacionItem.value = "";
+  observacionItem.placeholder = it.colores && it.colores.length
+    ? `Colores disponibles: ${it.colores.join(", ")}`
+    : "Ej.: Negro y beige; priorizar talle M";
   document.getElementById("in-cajas").focus();
   document.getElementById("in-cajas").select();
   recalcularUnidades();
@@ -314,6 +327,7 @@ function agregarItemAlPedido() {
   const cajas = parseInt(document.getElementById("in-cajas").value || "0", 10) || 0;
   const unidCaja = parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0;
   const precio = parseFloat((document.getElementById("preview-precio").value || "0").replace(",", ".")) || 0;
+  const observacion = document.getElementById("in-observacion-item").value.trim();
   if (cajas <= 0 || unidCaja <= 0) return;
 
   if (itemSeleccionado.codigo && itemSeleccionado.precio !== precio) {
@@ -324,7 +338,7 @@ function agregarItemAlPedido() {
     codigo: itemSeleccionado.codigo,
     nombre: itemSeleccionado.nombre,
     imagenes: itemSeleccionado.imagenes,
-    cajas, unidadesPorCaja: unidCaja, precioUnitario: precio
+    cajas, unidadesPorCaja: unidCaja, precioUnitario: precio, observacion
   });
   renderTablaPedido();
   limpiarSeleccion();
@@ -335,6 +349,8 @@ function limpiarSeleccion() {
   document.getElementById("preview-nombre").textContent = "Ningún producto seleccionado";
   document.getElementById("preview-codigo").textContent = "";
   document.getElementById("preview-precio").value = "";
+  document.getElementById("in-observacion-item").value = "";
+  document.getElementById("in-observacion-item").placeholder = "Ej.: Negro y beige; priorizar talle M";
   document.getElementById("preview-foto").innerHTML = `<span class="sin">Sin<br>selección</span>`;
   document.getElementById("in-cajas").value = "1";
   document.getElementById("in-unidcaja").value = "1";
@@ -362,6 +378,7 @@ function renderTablaPedido() {
       <td>${celdaFotoHTML(it.imagenes, "miniatura", "miniatura-vacia")}</td>
       <td>${it.codigo || "-"}</td>
       <td>${it.nombre}</td>
+      <td><textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Color u observación">${escaparHTML(it.observacion)}</textarea></td>
       <td><input type="number" min="1" value="${it.cajas}" data-idx="${i}" data-campo="cajas" style="width:56px"></td>
       <td>${unidTot}</td>
       <td><input type="number" step="0.01" value="${it.precioUnitario}" data-idx="${i}" data-campo="precio" style="width:74px"></td>
@@ -385,7 +402,12 @@ function renderTablaPedido() {
       recalcularResumen();
       const tds = e.target.closest("tr").querySelectorAll("td");
       const unidTot = pedidoItems[idx].cajas * pedidoItems[idx].unidadesPorCaja;
-      tds[6].textContent = "$" + (unidTot * pedidoItems[idx].precioUnitario).toFixed(2);
+      tds[7].textContent = "$" + (unidTot * pedidoItems[idx].precioUnitario).toFixed(2);
+    });
+  });
+  tbody.querySelectorAll("textarea[data-campo='observacion']").forEach(inp => {
+    inp.addEventListener("input", e => {
+      pedidoItems[+e.target.dataset.idx].observacion = e.target.value;
     });
   });
   tbody.querySelectorAll(".btn-borrar").forEach(btn => {
@@ -492,7 +514,7 @@ document.getElementById("btn-pdf").addEventListener("click", () => {
     filas += `<tr>
       <td>${foto}</td>
       <td>${it.codigo || "-"}</td>
-      <td>${it.nombre}</td>
+      <td>${it.nombre}${it.observacion ? `<div class="obs-item"><b>Color / observaciones:</b> ${escaparHTML(it.observacion)}</div>` : ""}</td>
       <td>${it.cajas}</td>
       <td>${unidTot}</td>
       <td>$${it.precioUnitario.toFixed(2)}</td>
@@ -514,7 +536,7 @@ document.getElementById("btn-pdf").addEventListener("click", () => {
       <div><b>Transporte / Dirección:</b> ${transporte}</div>
     </div>
     <table>
-      <thead><tr><th>Foto</th><th>Código</th><th>Prenda</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th></tr></thead>
+      <thead><tr><th>Foto</th><th>Código</th><th>Prenda / color</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th></tr></thead>
       <tbody>${filas}</tbody>
     </table>
     <div class="totales-imp">${filasTotales}</div>

@@ -200,7 +200,8 @@
   .curva-caja td:first-child, .curva-caja th:first-child{text-align:left;}
 
   /* Tabla pedido */
-  table#tabla-pedido{width:100%;border-collapse:collapse;font-size:13px;}
+  table#tabla-pedido{width:100%;min-width:850px;border-collapse:collapse;font-size:13px;}
+  .col-der{overflow-x:auto;}
   table#tabla-pedido th{
     text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:0.05em;
     color:var(--tinta-suave);border-bottom:1px solid var(--borde);padding:6px 6px;
@@ -213,6 +214,7 @@
     font-size:8px;color:#a89a80;text-align:center;
   }
   table#tabla-pedido input{width:100%;padding:5px 6px;font-size:13px;}
+  table#tabla-pedido .observacion-item{min-width:150px;resize:vertical;min-height:42px;}
   #estado-vacio{color:var(--tinta-suave);padding:24px 0;text-align:center;font-size:13px;}
 
   .resumen{
@@ -278,6 +280,7 @@
   #hoja-impresion th{background:#eee;}
   #hoja-impresion img{width:36px;height:36px;object-fit:cover;}
   #hoja-impresion .sin-mini{font-size:8px;color:#888;line-height:1.1;display:inline-block;}
+  #hoja-impresion .obs-item{margin-top:3px;font-size:10px;line-height:1.25;color:#333;}
   #hoja-impresion .totales-imp{margin-top:10px;text-align:right;font-family:-apple-system,sans-serif;font-size:13px;}
   #hoja-impresion .totales-imp .total{font-size:16px;font-weight:700;}
   #hoja-impresion .obs{
@@ -339,6 +342,8 @@
         <div class="total-unid" id="total-unid">= 1 unidad</div>
       </div>
       <div id="curva-caja" class="curva-caja" style="display:none"></div>
+      <label>Color / observaciones de esta prenda</label>
+      <textarea id="in-observacion-item" placeholder="Ej.: Negro y beige; priorizar talle M" style="min-height:58px"></textarea>
       <div class="acciones-pedido">
         <button class="btn btn-acento" id="btn-agregar" style="width:100%">Agregar a la selección (Enter)</button>
       </div>
@@ -350,7 +355,7 @@
     <h2>Pedido actual</h2>
     <table id="tabla-pedido">
       <thead>
-        <tr><th>Foto</th><th>Código</th><th>Prenda</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th><th></th></tr>
+        <tr><th>Foto</th><th>Código</th><th>Prenda</th><th>Color / observaciones</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th><th></th></tr>
       </thead>
       <tbody id="tbody-pedido"></tbody>
     </table>
