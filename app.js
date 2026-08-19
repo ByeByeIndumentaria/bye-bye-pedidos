@@ -91,6 +91,7 @@ function construirItems() {
       descripcion: p.descripcion,
       categoria: p.categoria,
       subcategoria: p.subcategoria,
+      colores: p.colores || [],
       imagenes: p.imagenes || [],
       packaging: p.packaging || null,
       precio,
