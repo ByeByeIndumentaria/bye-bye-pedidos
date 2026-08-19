@@ -185,7 +185,7 @@
     align-self:end;font-size:13px;color:var(--tinta-suave);padding-bottom:8px;
   }
   #label-unidcaja.automatico{color:var(--ok);}
-  #label-unidcaja.automatico::after{content:" (auto)";text-transform:none;letter-spacing:0;font-size:10px;}
+  #label-unidcaja.automatico::after{content:" (sugerido, editable)";text-transform:none;letter-spacing:0;font-size:10px;}
   .curva-caja{
     margin-top:10px;padding:10px 12px;background:var(--crema-2);
     border:1px solid var(--borde);border-radius:var(--radio);font-size:12px;color:var(--tinta-suave);
@@ -328,7 +328,7 @@
         <div class="info">
           <div class="nombre" id="preview-nombre">Ningún producto seleccionado</div>
           <div class="codigo" id="preview-codigo"></div>
-          <label>Precio unitario</label>
+          <label>Precio unitario (editable)</label>
           <input type="number" step="0.01" id="preview-precio" style="width:120px">
         </div>
       </div>
@@ -355,7 +355,7 @@
     <h2>Pedido actual</h2>
     <table id="tabla-pedido">
       <thead>
-        <tr><th>Foto</th><th>Código</th><th>Prenda</th><th>Color / observaciones</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th><th></th></tr>
+        <tr><th>Foto</th><th>Código</th><th>Prenda</th><th>Color / observaciones</th><th>Cajas</th><th>Unid./caja</th><th>Precio editable</th><th>Subtotal</th><th></th></tr>
       </thead>
       <tbody id="tbody-pedido"></tbody>
     </table>

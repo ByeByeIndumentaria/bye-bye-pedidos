@@ -245,7 +245,7 @@ function renderCurvaCaja(item) {
 
   if (item && item.packaging && item.packaging.totalPieces) {
     inputUnidCaja.value = item.packaging.totalPieces;
-    inputUnidCaja.readOnly = true;
+    inputUnidCaja.readOnly = false;
     labelUnidCaja.classList.add("automatico");
 
     const rows = item.packaging.rows || [];
@@ -259,11 +259,11 @@ function renderCurvaCaja(item) {
         const celdas = talles.map(t => `<td>${r.sizePieces[t] || "–"}</td>`).join("");
         return `<tr><td>${r.color}</td>${celdas}</tr>`;
       }).join("");
-      cont.innerHTML = `<div class="titulo-curva">Caja tipo: ${item.packaging.totalPieces} unidades</div>
+      cont.innerHTML = `<div class="titulo-curva">Caja tipo sugerida: ${item.packaging.totalPieces} unidades</div>
         <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
       cont.style.display = "block";
     } else {
-      cont.innerHTML = `<div class="titulo-curva">Caja tipo: ${item.packaging.totalPieces} unidades</div>`;
+      cont.innerHTML = `<div class="titulo-curva">Caja tipo sugerida: ${item.packaging.totalPieces} unidades</div>`;
       cont.style.display = "block";
     }
   } else {
@@ -381,7 +381,7 @@ function renderTablaPedido() {
       <td>${it.nombre}</td>
       <td><textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Color u observación">${escaparHTML(it.observacion)}</textarea></td>
       <td><input type="number" min="1" value="${it.cajas}" data-idx="${i}" data-campo="cajas" style="width:56px"></td>
-      <td>${unidTot}</td>
+      <td><input type="number" min="1" value="${it.unidadesPorCaja}" data-idx="${i}" data-campo="unidades" style="width:68px"></td>
       <td><input type="number" step="0.01" value="${it.precioUnitario}" data-idx="${i}" data-campo="precio" style="width:74px"></td>
       <td>$${subtotal.toFixed(2)}</td>
       <td><button class="btn-borrar" data-idx="${i}">✕</button></td>
@@ -394,6 +394,16 @@ function renderTablaPedido() {
       const idx = +e.target.dataset.idx;
       pedidoItems[idx].cajas = parseInt(e.target.value || "0", 10) || 0;
       renderTablaPedido();
+    });
+  });
+  tbody.querySelectorAll("input[data-campo='unidades']").forEach(inp => {
+    inp.addEventListener("input", e => {
+      const idx = +e.target.dataset.idx;
+      pedidoItems[idx].unidadesPorCaja = parseInt(e.target.value || "0", 10) || 0;
+      recalcularResumen();
+      const tds = e.target.closest("tr").querySelectorAll("td");
+      const unidTot = pedidoItems[idx].cajas * pedidoItems[idx].unidadesPorCaja;
+      tds[7].textContent = "$" + (unidTot * pedidoItems[idx].precioUnitario).toFixed(2);
     });
   });
   tbody.querySelectorAll("input[data-campo='precio']").forEach(inp => {
