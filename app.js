@@ -465,47 +465,64 @@ document.getElementById("f-numero").value = siguienteNumeroPedido();
 document.getElementById("f-fecha").value = new Date().toLocaleDateString("es-AR");
 
 /* ==========================================================================
-   GENERAR PDF (vía impresión del navegador — funciona 100% offline)
+   GENERAR Y DESCARGAR PDF DIRECTAMENTE
    ========================================================================== */
+let libreriasPdfCargadas = false;
 
-// Espera a que todas las <img> de un contenedor terminen de resolverse
-// (carguen bien, o agoten su lista de fotos alternativas y se reemplacen
-// por el placeholder) antes de seguir. Esto es necesario porque
-// window.print() puede dispararse ANTES de que el navegador termine de
-// cargar las fotos (sobre todo cuando una foto falla y hay que probar la
-// siguiente), y entonces salían en blanco en el PDF.
-function esperarImagenes(contenedor, timeoutMs = 4000) {
-  const imgs = Array.from(contenedor.querySelectorAll("img"));
-  if (!imgs.length) return Promise.resolve();
-  const promesas = imgs.map(img => new Promise(resolve => {
-    let resuelto = false;
-    const terminar = () => { if (!resuelto) { resuelto = true; resolve(); } };
-
-    if (img.complete && img.naturalWidth > 0) { terminar(); return; }
-
-    img.addEventListener("load", terminar);
-    img.addEventListener("error", () => {
-      // Puede ser un fallo intermedio (todavía va a probar la próxima foto
-      // de la lista) o el fallo final (se reemplaza por el placeholder).
-      // En ambos casos, esperamos un instante extra a que el DOM se
-      // termine de acomodar antes de dar por resuelta esta imagen.
-      setTimeout(() => {
-        if (!contenedor.contains(img) || (img.complete && img.naturalWidth > 0)) {
-          terminar();
-        } else {
-          // sigue reintentando con la siguiente foto: esperamos un poco más
-          img.addEventListener("load", terminar);
-          img.addEventListener("error", terminar);
-        }
-      }, 50);
-    });
-    // Red de seguridad: nunca esperamos para siempre.
-    setTimeout(terminar, timeoutMs);
-  }));
-  return Promise.all(promesas);
+function cargarScriptExterno(src) {
+  return new Promise((resolve, reject) => {
+    const existente = document.querySelector(`script[src="${src}"]`);
+    if (existente) {
+      if (existente.dataset.cargado === "si") resolve();
+      else {
+        existente.addEventListener("load", resolve, { once: true });
+        existente.addEventListener("error", reject, { once: true });
+      }
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = src;
+    script.onload = () => { script.dataset.cargado = "si"; resolve(); };
+    script.onerror = () => reject(new Error(`No se pudo cargar ${src}`));
+    document.head.appendChild(script);
+  });
 }
 
-document.getElementById("btn-pdf").addEventListener("click", () => {
+async function cargarLibreriasPDF() {
+  if (libreriasPdfCargadas && window.jspdf && window.jspdf.jsPDF) return;
+  await cargarScriptExterno("https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js");
+  await cargarScriptExterno("https://unpkg.com/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js");
+  if (!window.jspdf || !window.jspdf.jsPDF) throw new Error("La librería de PDF no quedó disponible.");
+  libreriasPdfCargadas = true;
+}
+
+function blobADataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const lector = new FileReader();
+    lector.onload = () => resolve(lector.result);
+    lector.onerror = reject;
+    lector.readAsDataURL(blob);
+  });
+}
+
+async function primeraFotoDisponible(imagenes) {
+  for (const src of (imagenes || []).filter(Boolean)) {
+    try {
+      const respuesta = await fetch(src);
+      if (!respuesta.ok) continue;
+      return await blobADataURL(await respuesta.blob());
+    } catch (e) { /* prueba la siguiente foto */ }
+  }
+  return null;
+}
+
+function nombreArchivoSeguro(texto) {
+  return quitarAcentos(texto || "pedido")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "pedido";
+}
+
+document.getElementById("btn-pdf").addEventListener("click", async () => {
   if (!pedidoItems.length) { alert("Agregá al menos un producto antes de generar el PDF."); return; }
   const cliente = document.getElementById("f-cliente").value.trim();
   if (!cliente) { alert("Ingresá el nombre del cliente / razón social."); return; }
@@ -517,60 +534,109 @@ document.getElementById("btn-pdf").addEventListener("click", () => {
   const observaciones = document.getElementById("f-observaciones").value.trim();
   const r = obtenerResumen();
 
-  let filas = "";
-  pedidoItems.forEach(it => {
-    const unidTot = it.cajas * it.unidadesPorCaja;
-    const subtotal = unidTot * it.precioUnitario;
-    const foto = construirImgConFallback(it.imagenes, "", `<span class="sin-mini">Sin<br>foto</span>`);
-    filas += `<tr>
-      <td>${foto}</td>
-      <td>${it.codigo || "-"}</td>
-      <td>${it.nombre}${it.observacion ? `<div class="obs-item"><b>Color / observaciones:</b> ${escaparHTML(it.observacion)}</div>` : ""}</td>
-      <td>${it.cajas}</td>
-      <td>${unidTot}</td>
-      <td>$${it.precioUnitario.toFixed(2)}</td>
-      <td>$${subtotal.toFixed(2)}</td>
-    </tr>`;
-  });
-
-  let filasTotales = `<div>Subtotal: $${r.subtotal.toFixed(2)}</div>`;
-  if (r.descuentoPct) filasTotales += `<div>Descuento (${r.descuentoPct}%): -$${r.montoDescuento.toFixed(2)}</div>`;
-  if (r.envio) filasTotales += `<div>Envío: $${r.envio.toFixed(2)}</div>`;
-  filasTotales += `<div class="total">TOTAL: $${r.total.toFixed(2)}</div>`;
-
-  const hoja = document.getElementById("hoja-impresion");
-  hoja.innerHTML = `
-    <h1>BYE BYE Indumentaria</h1>
-    <div class="meta">
-      <div><b>N° de Pedido:</b> ${numero} &nbsp;&nbsp; <b>Fecha:</b> ${fecha}</div>
-      <div><b>Cliente:</b> ${cliente} &nbsp;&nbsp; <b>Teléfono:</b> ${telefono}</div>
-      <div><b>Transporte / Dirección:</b> ${transporte}</div>
-    </div>
-    <table>
-      <thead><tr><th>Foto</th><th>Código</th><th>Prenda / color</th><th>Cajas</th><th>Unid.</th><th>Precio</th><th>Subtotal</th></tr></thead>
-      <tbody>${filas}</tbody>
-    </table>
-    <div class="totales-imp">${filasTotales}</div>
-    <div class="obs"><b>Observaciones para depósito</b><br>${observaciones || "-"}</div>
-  `;
-
   const btnPdf = document.getElementById("btn-pdf");
   const textoOriginal = btnPdf.textContent;
-  btnPdf.textContent = "Preparando fotos…";
+  btnPdf.textContent = "Generando PDF…";
   btnPdf.disabled = true;
 
-  esperarImagenes(hoja).then(() => {
-    btnPdf.textContent = textoOriginal;
-    btnPdf.disabled = false;
-    window.print();
+  try {
+    await cargarLibreriasPDF();
+    const fotos = await Promise.all(pedidoItems.map(it => primeraFotoDisponible(it.imagenes)));
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(18);
+    doc.text("BYE BYE Indumentaria", 12, 15);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text(`Pedido N° ${numero || "-"}   |   Fecha: ${fecha || "-"}`, 12, 22);
+    doc.text(`Cliente: ${cliente}   |   Teléfono: ${telefono || "-"}`, 12, 27);
+    doc.text(`Transporte / Dirección: ${transporte || "-"}`, 12, 32);
+
+    const cuerpo = pedidoItems.map(it => {
+      const unidTot = it.cajas * it.unidadesPorCaja;
+      const detalle = it.observacion ? `${it.nombre}\nColor / observaciones: ${it.observacion}` : it.nombre;
+      return ["", it.codigo || "-", detalle, String(it.cajas), String(unidTot), `$${it.precioUnitario.toFixed(2)}`, `$${(unidTot * it.precioUnitario).toFixed(2)}`];
+    });
+
+    doc.autoTable({
+      startY: 37,
+      head: [["Foto", "Código", "Prenda / color", "Cajas", "Unid.", "Precio", "Subtotal"]],
+      body: cuerpo,
+      margin: { left: 12, right: 12, bottom: 14 },
+      tableWidth: 172,
+      theme: "grid",
+      styles: { font: "helvetica", fontSize: 8, cellPadding: 2, valign: "middle", lineColor: [180, 180, 180], lineWidth: 0.15 },
+      headStyles: { fillColor: [22, 20, 18], textColor: [255, 255, 255], fontStyle: "bold" },
+      columnStyles: {
+        0: { cellWidth: 16, minCellHeight: 16 },
+        1: { cellWidth: 23 },
+        2: { cellWidth: 57 },
+        3: { cellWidth: 14, halign: "center" },
+        4: { cellWidth: 14, halign: "center" },
+        5: { cellWidth: 22, halign: "right" },
+        6: { cellWidth: 26, halign: "right" }
+      },
+      didDrawCell(data) {
+        if (data.section !== "body" || data.column.index !== 0) return;
+        const foto = fotos[data.row.index];
+        if (!foto) return;
+        try {
+          const props = doc.getImageProperties(foto);
+          const max = 12;
+          const escala = Math.min(max / props.width, max / props.height);
+          const ancho = props.width * escala;
+          const alto = props.height * escala;
+          doc.addImage(foto, data.cell.x + (data.cell.width - ancho) / 2, data.cell.y + (data.cell.height - alto) / 2, ancho, alto);
+        } catch (e) { /* el PDF continúa aunque una foto no sea compatible */ }
+      }
+    });
+
+    let y = doc.lastAutoTable.finalY + 7;
+    const lineasExtra = 4 + (r.descuentoPct ? 1 : 0) + (r.envio ? 1 : 0);
+    if (y + lineasExtra * 5 > 282) { doc.addPage(); y = 18; }
+    doc.setFontSize(10);
+    doc.setFont("helvetica", "normal");
+    doc.text(`Subtotal: $${r.subtotal.toFixed(2)}`, 198, y, { align: "right" });
+    y += 5;
+    if (r.descuentoPct) { doc.text(`Descuento (${r.descuentoPct}%): -$${r.montoDescuento.toFixed(2)}`, 198, y, { align: "right" }); y += 5; }
+    if (r.envio) { doc.text(`Envío: $${r.envio.toFixed(2)}`, 198, y, { align: "right" }); y += 5; }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(13);
+    doc.text(`TOTAL: $${r.total.toFixed(2)}`, 198, y, { align: "right" });
+    y += 9;
+    const lineasObs = doc.splitTextToSize(observaciones || "-", 186);
+    if (y + 5 + lineasObs.length * 4 > 282) { doc.addPage(); y = 18; }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Observaciones para depósito", 12, y);
+    y += 4;
+    doc.setFont("helvetica", "normal");
+    doc.text(lineasObs, 12, y);
+
+    const totalPaginas = doc.getNumberOfPages();
+    for (let pagina = 1; pagina <= totalPaginas; pagina++) {
+      doc.setPage(pagina);
+      doc.setFontSize(8);
+      doc.setTextColor(100);
+      doc.text(`Página ${pagina} de ${totalPaginas}`, 198, 290, { align: "right" });
+    }
+    doc.setTextColor(0);
+
+    const archivo = `Pedido-${nombreArchivoSeguro(numero)}-${nombreArchivoSeguro(cliente)}.pdf`;
+    doc.save(archivo);
 
     let n = LS.get("bb_siguiente_numero", 1);
     LS.set("bb_siguiente_numero", n + 1);
-  });
-});
-
-window.addEventListener("afterprint", () => {
-  document.getElementById("f-numero").value = siguienteNumeroPedido();
+    document.getElementById("f-numero").value = siguienteNumeroPedido();
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo generar el PDF. Revisá tu conexión a internet e intentá nuevamente.");
+  } finally {
+    btnPdf.textContent = textoOriginal;
+    btnPdf.disabled = false;
+  }
 });
 
 /* ==========================================================================
