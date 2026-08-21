@@ -98,6 +98,13 @@ Igual que antes:
    mismo en la tabla.
 8. Descuento % y Envío $ opcionales — el total se recalcula solo.
 
+### Guardar y continuar pedidos
+
+- **Guardar pedido** conserva el pedido actual en este navegador, incluso si todavía es un borrador.
+- **Pedidos guardados** permite buscar, abrir y seguir editando cualquier pedido anterior.
+- Cada pedido puede marcarse como Borrador, En confirmación, Por pagar, Pagado, En preparación, Entregado o Cancelado.
+- Si intentás cerrar la página con cambios pendientes, el navegador muestra una advertencia.
+
 Actualmente **136 de 180 productos** ya tienen su curva de caja cargada
 (la misma info que usa tu sitio web). Los que todavía no la tienen son,
 sobre todo, productos de la colección anterior a "Producción Invierno

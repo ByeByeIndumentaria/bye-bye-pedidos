@@ -368,6 +368,124 @@ document.getElementById("btn-agregar").addEventListener("click", agregarItemAlPe
    PEDIDO ACTUAL
    ========================================================================== */
 let pedidoItems = [];
+let pedidoActualId = null;
+let pedidoConCambios = false;
+let cargandoPedido = false;
+let pedidosGuardados = LS.get("bb_pedidos_guardados", []);
+if (!Array.isArray(pedidosGuardados)) pedidosGuardados = [];
+
+function marcarPedidoConCambios() {
+  if (cargandoPedido) return;
+  pedidoConCambios = true;
+  document.getElementById("indicador-cambios").classList.remove("oculto");
+}
+
+function marcarPedidoGuardado() {
+  pedidoConCambios = false;
+  document.getElementById("indicador-cambios").classList.add("oculto");
+}
+
+function claseEstado(estado) {
+  return "estado-" + norm(estado).replace(/\s+/g, "-");
+}
+
+function actualizarEstiloEstado() {
+  const select = document.getElementById("f-estado");
+  select.className = `estado-pedido ${claseEstado(select.value)}`;
+}
+
+function datosPedidoActual() {
+  const resumen = obtenerResumen();
+  return {
+    id: pedidoActualId || (crypto.randomUUID ? crypto.randomUUID() : `pedido-${Date.now()}`),
+    numero: document.getElementById("f-numero").value.trim(),
+    fecha: document.getElementById("f-fecha").value.trim(),
+    cliente: document.getElementById("f-cliente").value.trim(),
+    telefono: document.getElementById("f-telefono").value.trim(),
+    transporte: document.getElementById("f-transporte").value.trim(),
+    observaciones: document.getElementById("f-observaciones").value,
+    estado: document.getElementById("f-estado").value,
+    descuento: document.getElementById("in-descuento").value,
+    envio: document.getElementById("in-envio").value,
+    items: pedidoItems.map(item => ({ ...item, imagenes: [...(item.imagenes || [])] })),
+    total: resumen.total,
+    actualizadoEn: new Date().toISOString()
+  };
+}
+
+function guardarPedidoActual() {
+  const pedido = datosPedidoActual();
+  pedidoActualId = pedido.id;
+  pedidosGuardados = [pedido, ...pedidosGuardados.filter(item => item.id !== pedido.id)];
+  LS.set("bb_pedidos_guardados", pedidosGuardados);
+  marcarPedidoGuardado();
+  renderHistorialPedidos();
+  alert(`Pedido ${pedido.numero || "sin número"} guardado como ${pedido.estado}.`);
+}
+
+function cargarPedidoGuardado(id) {
+  const pedido = pedidosGuardados.find(item => item.id === id);
+  if (!pedido) return;
+  if (pedidoConCambios && !confirm("Hay cambios sin guardar. ¿Descartarlos y abrir otro pedido?")) return;
+  cargandoPedido = true;
+  pedidoActualId = pedido.id;
+  document.getElementById("f-numero").value = pedido.numero || "";
+  document.getElementById("f-fecha").value = pedido.fecha || "";
+  document.getElementById("f-cliente").value = pedido.cliente || "";
+  document.getElementById("f-telefono").value = pedido.telefono || "";
+  document.getElementById("f-transporte").value = pedido.transporte || "";
+  document.getElementById("f-observaciones").value = pedido.observaciones || "";
+  document.getElementById("f-estado").value = pedido.estado || "Borrador";
+  document.getElementById("in-descuento").value = pedido.descuento || 0;
+  document.getElementById("in-envio").value = pedido.envio || 0;
+  pedidoItems = (pedido.items || []).map(item => ({ ...item, imagenes: [...(item.imagenes || [])] }));
+  actualizarEstiloEstado();
+  renderTablaPedido();
+  cargandoPedido = false;
+  marcarPedidoGuardado();
+  cerrarModal("modal-historial");
+}
+
+function nuevoPedido() {
+  if (pedidoConCambios && !confirm("Hay cambios sin guardar. ¿Crear un pedido nuevo igualmente?")) return;
+  cargandoPedido = true;
+  pedidoActualId = null;
+  pedidoItems = [];
+  document.getElementById("f-numero").value = siguienteNumeroPedido();
+  document.getElementById("f-fecha").value = new Date().toLocaleDateString("es-AR");
+  ["f-cliente", "f-telefono", "f-transporte", "f-observaciones"].forEach(id => document.getElementById(id).value = "");
+  document.getElementById("f-estado").value = "Borrador";
+  document.getElementById("in-descuento").value = 0;
+  document.getElementById("in-envio").value = 0;
+  actualizarEstiloEstado();
+  renderTablaPedido();
+  cargandoPedido = false;
+  marcarPedidoGuardado();
+}
+
+function renderHistorialPedidos() {
+  const lista = document.getElementById("lista-pedidos");
+  if (!lista) return;
+  const busqueda = norm(document.getElementById("buscar-pedidos").value);
+  const estado = document.getElementById("filtrar-estado").value;
+  const visibles = pedidosGuardados.filter(pedido =>
+    (!busqueda || norm(`${pedido.numero} ${pedido.cliente}`).includes(busqueda)) &&
+    (!estado || pedido.estado === estado)
+  );
+  lista.innerHTML = visibles.length ? visibles.map(pedido => `
+    <div class="pedido-guardado">
+      <div><strong>${escaparHTML(pedido.numero || "Sin número")} · ${escaparHTML(pedido.cliente || "Cliente sin completar")}</strong><div class="meta">${escaparHTML(pedido.fecha || "Sin fecha")} · <span class="${claseEstado(pedido.estado || "Borrador")}">${escaparHTML(pedido.estado || "Borrador")}</span> · ${(pedido.items || []).length} prendas · $${Number(pedido.total || 0).toFixed(2)}</div></div>
+      <div class="acciones-registro"><button class="btn btn-acento" data-abrir-pedido="${pedido.id}">Abrir y editar</button><button class="btn" data-borrar-pedido="${pedido.id}">Eliminar</button></div>
+    </div>`).join("") : '<div id="estado-vacio">No hay pedidos que coincidan con la búsqueda.</div>';
+  lista.querySelectorAll("[data-abrir-pedido]").forEach(btn => btn.addEventListener("click", () => cargarPedidoGuardado(btn.dataset.abrirPedido)));
+  lista.querySelectorAll("[data-borrar-pedido]").forEach(btn => btn.addEventListener("click", () => {
+    const pedido = pedidosGuardados.find(item => item.id === btn.dataset.borrarPedido);
+    if (!pedido || !confirm(`¿Eliminar el pedido ${pedido.numero || "sin número"}?`)) return;
+    pedidosGuardados = pedidosGuardados.filter(item => item.id !== pedido.id);
+    LS.set("bb_pedidos_guardados", pedidosGuardados);
+    renderHistorialPedidos();
+  }));
+}
 
 function agregarItemAlPedido() {
   if (!itemSeleccionado) return;
@@ -387,6 +505,7 @@ function agregarItemAlPedido() {
     imagenes: itemSeleccionado.imagenes,
     cajas, unidadesPorCaja: unidCaja, precioUnitario: precio, observacion
   });
+  marcarPedidoConCambios();
   renderTablaPedido();
   limpiarSeleccion();
 }
@@ -439,6 +558,7 @@ function renderTablaPedido() {
     inp.addEventListener("input", e => {
       const idx = +e.target.dataset.idx;
       pedidoItems[idx].cajas = parseInt(e.target.value || "0", 10) || 0;
+      marcarPedidoConCambios();
       renderTablaPedido();
     });
   });
@@ -446,6 +566,7 @@ function renderTablaPedido() {
     inp.addEventListener("input", e => {
       const idx = +e.target.dataset.idx;
       pedidoItems[idx].unidadesPorCaja = parseInt(e.target.value || "0", 10) || 0;
+      marcarPedidoConCambios();
       recalcularResumen();
       const tds = e.target.closest("tr").querySelectorAll("td");
       const unidTot = pedidoItems[idx].cajas * pedidoItems[idx].unidadesPorCaja;
@@ -456,6 +577,7 @@ function renderTablaPedido() {
     inp.addEventListener("input", e => {
       const idx = +e.target.dataset.idx;
       pedidoItems[idx].precioUnitario = parseFloat((e.target.value || "0").replace(",", ".")) || 0;
+      marcarPedidoConCambios();
       recalcularResumen();
       const tds = e.target.closest("tr").querySelectorAll("td");
       const unidTot = pedidoItems[idx].cajas * pedidoItems[idx].unidadesPorCaja;
@@ -465,11 +587,13 @@ function renderTablaPedido() {
   tbody.querySelectorAll("textarea[data-campo='observacion']").forEach(inp => {
     inp.addEventListener("input", e => {
       pedidoItems[+e.target.dataset.idx].observacion = e.target.value;
+      marcarPedidoConCambios();
     });
   });
   tbody.querySelectorAll(".btn-borrar").forEach(btn => {
     btn.addEventListener("click", e => {
       pedidoItems.splice(+e.target.dataset.idx, 1);
+      marcarPedidoConCambios();
       renderTablaPedido();
     });
   });
@@ -497,6 +621,7 @@ document.getElementById("in-envio").addEventListener("input", recalcularResumen)
 document.getElementById("btn-vaciar").addEventListener("click", () => {
   if (pedidoItems.length && !confirm("¿Vaciar la selección actual?")) return;
   pedidoItems = [];
+  marcarPedidoConCambios();
   renderTablaPedido();
 });
 
@@ -575,6 +700,7 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
 
   const numero = document.getElementById("f-numero").value.trim();
   const fecha = document.getElementById("f-fecha").value.trim();
+  const estadoPedido = document.getElementById("f-estado").value;
   const telefono = document.getElementById("f-telefono").value.trim();
   const transporte = document.getElementById("f-transporte").value.trim();
   const observaciones = document.getElementById("f-observaciones").value.trim();
@@ -596,7 +722,7 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
     doc.text("BYE BYE Indumentaria", 12, 15);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(9);
-    doc.text(`Pedido N° ${numero || "-"}   |   Fecha: ${fecha || "-"}`, 12, 22);
+    doc.text(`Pedido N° ${numero || "-"}   |   Fecha: ${fecha || "-"}   |   Estado: ${estadoPedido}`, 12, 22);
     doc.text(`Cliente: ${cliente}   |   Teléfono: ${telefono || "-"}`, 12, 27);
     doc.text(`Transporte / Dirección: ${transporte || "-"}`, 12, 32);
 
@@ -971,6 +1097,29 @@ function actualizarBarraEstado() {
 /* ==========================================================================
    INICIO
    ========================================================================== */
+["f-numero", "f-fecha", "f-cliente", "f-telefono", "f-transporte", "f-observaciones", "f-estado", "in-descuento", "in-envio"].forEach(id => {
+  document.getElementById(id).addEventListener("input", marcarPedidoConCambios);
+});
+document.getElementById("f-estado").addEventListener("change", () => {
+  actualizarEstiloEstado();
+  marcarPedidoConCambios();
+});
+document.getElementById("btn-guardar-borrador").addEventListener("click", guardarPedidoActual);
+document.getElementById("btn-nuevo-pedido").addEventListener("click", nuevoPedido);
+document.getElementById("btn-historial").addEventListener("click", () => {
+  renderHistorialPedidos();
+  abrirModal("modal-historial");
+});
+document.getElementById("buscar-pedidos").addEventListener("input", renderHistorialPedidos);
+document.getElementById("filtrar-estado").addEventListener("change", renderHistorialPedidos);
+window.addEventListener("beforeunload", event => {
+  if (!pedidoConCambios) return;
+  event.preventDefault();
+  event.returnValue = "";
+});
+
 construirItems();
 renderTablaPedido();
 actualizarBarraEstado();
+actualizarEstiloEstado();
+renderHistorialPedidos();
