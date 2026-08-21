@@ -318,8 +318,8 @@ function renderCurvaCaja(item) {
 
 function seleccionarItem(it) {
   if (!it.enStock) {
-    alert(`${it.nombre} está sin stock y no se puede agregar al pedido.`);
-    return;
+    const agregarIgual = confirm(`${it.nombre} figura sin stock en el catálogo. ¿Querés agregarlo igualmente al pedido?`);
+    if (!agregarIgual) return;
   }
   itemSeleccionado = it;
   document.getElementById("preview-nombre").textContent = it.nombre;
