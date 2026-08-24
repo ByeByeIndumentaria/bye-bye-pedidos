@@ -1,11 +1,8 @@
 /* ==========================================================================
-   BYE BYE — Carga de Pedidos (versión web offline, un solo archivo)
+   BYE BYE — Carga de Pedidos con base compartida
    ==========================================================================
-   Todo corre en el navegador, sin servidor. Los datos persistentes
-   (precios manuales, precios importados nuevos, matches, próximo número de
-   pedido) se guardan en localStorage del navegador, así que quedan
-   guardados entre sesiones EN ESA COMPUTADORA (no se comparten entre
-   compus distintas: cada una tiene su propio localStorage).
+   Los pedidos se guardan en Supabase. Las preferencias locales (precios
+   manuales, matches y próximo número) siguen guardadas en el navegador.
    ========================================================================== */
 
 // --- Utilidades de texto -------------------------------------------------
@@ -46,6 +43,13 @@ const LS = {
     try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) { /* ignore */ }
   }
 };
+
+const SUPABASE_URL = "https://gkjnmzjwipvklmasprbm.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_qtUYoJtLCRi_EUxnZaKjSQ_viHYK4QU";
+const supabaseClient = window.supabase
+  ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
+  : null;
+let baseCompartidaLista = false;
 
 let preciosManuales = LS.get("bb_precios_manuales", {});       // {codigo: precio}
 let preciosImportados = LS.get("bb_precios_importados", {});   // {codigo: {nombre,descripcion,precio,hoja,archivo}}
@@ -413,8 +417,32 @@ function datosPedidoActual() {
   };
 }
 
-function guardarPedidoActual() {
+function filaPedido(pedido) {
+  return {
+    id: pedido.id,
+    number: pedido.numero || `SIN-NUMERO-${pedido.id}`,
+    customer: pedido.cliente || "",
+    status: pedido.estado || "Borrador",
+    order_date: null,
+    payload: pedido,
+    updated_at: pedido.actualizadoEn || new Date().toISOString()
+  };
+}
+
+async function guardarPedidoActual() {
+  if (!baseCompartidaLista) {
+    alert("La base compartida todavía no está conectada. Volvé a ingresar e intentá nuevamente.");
+    return;
+  }
   const pedido = datosPedidoActual();
+  const { error } = await supabaseClient.from("orders").upsert(filaPedido(pedido), { onConflict: "id" });
+  if (error) {
+    console.error(error);
+    alert(error.code === "23505"
+      ? "Ya existe otro pedido con ese número. Cambiá el número e intentá nuevamente."
+      : "No se pudo guardar el pedido en la base compartida. Revisá la conexión e intentá nuevamente.");
+    return;
+  }
   pedidoActualId = pedido.id;
   pedidosGuardados = [pedido, ...pedidosGuardados.filter(item => item.id !== pedido.id)];
   LS.set("bb_pedidos_guardados", pedidosGuardados);
@@ -478,9 +506,15 @@ function renderHistorialPedidos() {
       <div class="acciones-registro"><button class="btn btn-acento" data-abrir-pedido="${pedido.id}">Abrir y editar</button><button class="btn" data-borrar-pedido="${pedido.id}">Eliminar</button></div>
     </div>`).join("") : '<div id="estado-vacio">No hay pedidos que coincidan con la búsqueda.</div>';
   lista.querySelectorAll("[data-abrir-pedido]").forEach(btn => btn.addEventListener("click", () => cargarPedidoGuardado(btn.dataset.abrirPedido)));
-  lista.querySelectorAll("[data-borrar-pedido]").forEach(btn => btn.addEventListener("click", () => {
+  lista.querySelectorAll("[data-borrar-pedido]").forEach(btn => btn.addEventListener("click", async () => {
     const pedido = pedidosGuardados.find(item => item.id === btn.dataset.borrarPedido);
     if (!pedido || !confirm(`¿Eliminar el pedido ${pedido.numero || "sin número"}?`)) return;
+    const { error } = await supabaseClient.from("orders").delete().eq("id", pedido.id);
+    if (error) {
+      console.error(error);
+      alert("No se pudo eliminar el pedido de la base compartida.");
+      return;
+    }
     pedidosGuardados = pedidosGuardados.filter(item => item.id !== pedido.id);
     LS.set("bb_pedidos_guardados", pedidosGuardados);
     renderHistorialPedidos();
@@ -1100,6 +1134,113 @@ function actualizarBarraEstado() {
 }
 
 /* ==========================================================================
+   BASE COMPARTIDA / ACCESO
+   ========================================================================== */
+function mostrarEstadoAuth(texto, ok = false) {
+  const estado = document.getElementById("auth-estado");
+  estado.textContent = texto;
+  estado.classList.toggle("ok", ok);
+}
+
+function mostrarAcceso() {
+  baseCompartidaLista = false;
+  document.body.classList.add("auth-pending");
+  document.getElementById("auth-gate").classList.remove("oculto");
+  document.getElementById("btn-salir").style.display = "none";
+  document.getElementById("estado-base").textContent = "Sin conexión";
+}
+
+async function cargarPedidosDesdeBase() {
+  const { data, error } = await supabaseClient
+    .from("orders")
+    .select("payload")
+    .order("updated_at", { ascending: false });
+  if (error) throw error;
+  pedidosGuardados = (data || []).map(fila => fila.payload).filter(Boolean);
+  LS.set("bb_pedidos_guardados", pedidosGuardados);
+  renderHistorialPedidos();
+}
+
+async function migrarPedidosLocales() {
+  if (LS.get("bb_pedidos_migrados_supabase", false) || !pedidosGuardados.length) return;
+  const { error } = await supabaseClient
+    .from("orders")
+    .upsert(pedidosGuardados.map(filaPedido), { onConflict: "id" });
+  if (error) throw error;
+  LS.set("bb_pedidos_migrados_supabase", true);
+}
+
+async function activarBaseCompartida() {
+  document.getElementById("estado-base").textContent = "Sincronizando pedidos…";
+  try {
+    await migrarPedidosLocales();
+    await cargarPedidosDesdeBase();
+    baseCompartidaLista = true;
+    document.body.classList.remove("auth-pending");
+    document.getElementById("auth-gate").classList.add("oculto");
+    document.getElementById("btn-salir").style.display = "inline-block";
+    document.getElementById("estado-base").textContent = "Base compartida conectada";
+    document.getElementById("estado-base").classList.remove("error");
+    mostrarEstadoAuth("");
+  } catch (error) {
+    console.error(error);
+    document.getElementById("estado-base").classList.add("error");
+    mostrarEstadoAuth("No se pudo sincronizar la base. Revisá la conexión e intentá nuevamente.");
+    mostrarAcceso();
+  }
+}
+
+async function iniciarBaseCompartida() {
+  if (!supabaseClient) {
+    mostrarEstadoAuth("No se pudo cargar Supabase. Revisá tu conexión a internet.");
+    mostrarAcceso();
+    return;
+  }
+  const { data, error } = await supabaseClient.auth.getSession();
+  if (error || !data.session) {
+    mostrarAcceso();
+    return;
+  }
+  await activarBaseCompartida();
+}
+
+document.getElementById("auth-form").addEventListener("submit", async event => {
+  event.preventDefault();
+  mostrarEstadoAuth("Ingresando…", true);
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if (error) {
+    mostrarEstadoAuth("Correo o contraseña incorrectos.");
+    return;
+  }
+  await activarBaseCompartida();
+});
+
+document.getElementById("auth-crear").addEventListener("click", async () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  if (!email || password.length < 6) {
+    mostrarEstadoAuth("Ingresá un correo válido y una contraseña de al menos 6 caracteres.");
+    return;
+  }
+  mostrarEstadoAuth("Creando acceso…", true);
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if (error) {
+    mostrarEstadoAuth(error.message || "No se pudo crear el acceso.");
+    return;
+  }
+  if (data.session) await activarBaseCompartida();
+  else mostrarEstadoAuth("Acceso creado. Revisá el correo para confirmarlo y después ingresá.", true);
+});
+
+document.getElementById("btn-salir").addEventListener("click", async () => {
+  await supabaseClient.auth.signOut();
+  mostrarEstadoAuth("Sesión cerrada.", true);
+  mostrarAcceso();
+});
+
+/* ==========================================================================
    INICIO
    ========================================================================== */
 ["f-numero", "f-fecha", "f-cliente", "f-telefono", "f-transporte", "f-observaciones", "f-estado", "in-descuento", "in-envio"].forEach(id => {
@@ -1111,8 +1252,13 @@ document.getElementById("f-estado").addEventListener("change", () => {
 });
 document.getElementById("btn-guardar-borrador").addEventListener("click", guardarPedidoActual);
 document.getElementById("btn-nuevo-pedido").addEventListener("click", nuevoPedido);
-document.getElementById("btn-historial").addEventListener("click", () => {
-  renderHistorialPedidos();
+document.getElementById("btn-historial").addEventListener("click", async () => {
+  try {
+    await cargarPedidosDesdeBase();
+  } catch (error) {
+    console.error(error);
+    alert("No se pudo actualizar la lista desde la base compartida.");
+  }
   abrirModal("modal-historial");
 });
 document.getElementById("buscar-pedidos").addEventListener("input", renderHistorialPedidos);
@@ -1128,3 +1274,4 @@ renderTablaPedido();
 actualizarBarraEstado();
 actualizarEstiloEstado();
 renderHistorialPedidos();
+iniciarBaseCompartida();
