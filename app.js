@@ -53,7 +53,7 @@ let matches = LS.get("bb_matches", { matches: {}, ignorados: [] }); // {matches:
 
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
-const VERSION_LISTA_MAESTRA = "2026-08-20-lista-2-1";
+const VERSION_LISTA_MAESTRA = "2026-08-24-general-2026-2027";
 if (LS.get("bb_version_lista_maestra", "") !== VERSION_LISTA_MAESTRA) {
   preciosManuales = {};
   preciosImportados = {};
@@ -318,8 +318,8 @@ function renderCurvaCaja(item) {
 
 function seleccionarItem(it) {
   if (!it.enStock) {
-    const agregarIgual = confirm(`${it.nombre} figura sin stock en el catálogo. ¿Querés agregarlo igualmente al pedido?`);
-    if (!agregarIgual) return;
+    alert(`${it.nombre} figura sin stock y no se puede agregar al pedido.`);
+    return;
   }
   itemSeleccionado = it;
   document.getElementById("preview-nombre").textContent = it.nombre;
@@ -489,6 +489,11 @@ function renderHistorialPedidos() {
 
 function agregarItemAlPedido() {
   if (!itemSeleccionado) return;
+  if (!itemSeleccionado.enStock) {
+    alert(`${itemSeleccionado.nombre} figura sin stock y no se puede agregar al pedido.`);
+    limpiarSeleccion();
+    return;
+  }
   const cajas = parseInt(document.getElementById("in-cajas").value || "0", 10) || 0;
   const unidCaja = parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0;
   const precio = parseFloat((document.getElementById("preview-precio").value || "0").replace(",", ".")) || 0;
