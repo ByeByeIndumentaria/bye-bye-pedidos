@@ -509,10 +509,23 @@ function renderHistorialPedidos() {
   lista.querySelectorAll("[data-borrar-pedido]").forEach(btn => btn.addEventListener("click", async () => {
     const pedido = pedidosGuardados.find(item => item.id === btn.dataset.borrarPedido);
     if (!pedido || !confirm(`¿Eliminar el pedido ${pedido.numero || "sin número"}?`)) return;
-    const { error } = await supabaseClient.from("orders").delete().eq("id", pedido.id);
+    const codigo = prompt(`Ingresá el código para eliminar el pedido ${pedido.numero || "sin número"}:`);
+    if (codigo === null) return;
+    const { data, error } = await supabaseClient.functions.invoke("delete-order", {
+      body: { id: pedido.id, password: codigo }
+    });
     if (error) {
       console.error(error);
-      alert("No se pudo eliminar el pedido de la base compartida.");
+      let mensaje = "No se pudo eliminar el pedido.";
+      try {
+        const detalle = await error.context?.json();
+        if (detalle?.error) mensaje = detalle.error;
+      } catch (e) { /* conserva el mensaje general */ }
+      alert(mensaje);
+      return;
+    }
+    if (!data?.ok) {
+      alert(data?.error || "No se pudo eliminar el pedido.");
       return;
     }
     pedidosGuardados = pedidosGuardados.filter(item => item.id !== pedido.id);
@@ -1134,21 +1147,8 @@ function actualizarBarraEstado() {
 }
 
 /* ==========================================================================
-   BASE COMPARTIDA / ACCESO
+   BASE COMPARTIDA
    ========================================================================== */
-function mostrarEstadoAuth(texto, ok = false) {
-  const estado = document.getElementById("auth-estado");
-  estado.textContent = texto;
-  estado.classList.toggle("ok", ok);
-}
-
-function mostrarAcceso() {
-  baseCompartidaLista = false;
-  document.body.classList.add("auth-pending");
-  document.getElementById("auth-gate").classList.remove("oculto");
-  document.getElementById("btn-salir").style.display = "none";
-  document.getElementById("estado-base").textContent = "Sin conexión";
-}
 
 async function cargarPedidosDesdeBase() {
   const { data, error } = await supabaseClient
@@ -1176,69 +1176,24 @@ async function activarBaseCompartida() {
     await migrarPedidosLocales();
     await cargarPedidosDesdeBase();
     baseCompartidaLista = true;
-    document.body.classList.remove("auth-pending");
-    document.getElementById("auth-gate").classList.add("oculto");
-    document.getElementById("btn-salir").style.display = "inline-block";
     document.getElementById("estado-base").textContent = "Base compartida conectada";
     document.getElementById("estado-base").classList.remove("error");
-    mostrarEstadoAuth("");
   } catch (error) {
     console.error(error);
     document.getElementById("estado-base").classList.add("error");
-    mostrarEstadoAuth("No se pudo sincronizar la base. Revisá la conexión e intentá nuevamente.");
-    mostrarAcceso();
+    document.getElementById("estado-base").textContent = "Error de conexión";
+    alert("No se pudo sincronizar la base compartida. Revisá la conexión y recargá la página.");
   }
 }
 
 async function iniciarBaseCompartida() {
   if (!supabaseClient) {
-    mostrarEstadoAuth("No se pudo cargar Supabase. Revisá tu conexión a internet.");
-    mostrarAcceso();
-    return;
-  }
-  const { data, error } = await supabaseClient.auth.getSession();
-  if (error || !data.session) {
-    mostrarAcceso();
+    document.getElementById("estado-base").textContent = "Error de conexión";
+    alert("No se pudo cargar Supabase. Revisá tu conexión a internet.");
     return;
   }
   await activarBaseCompartida();
 }
-
-document.getElementById("auth-form").addEventListener("submit", async event => {
-  event.preventDefault();
-  mostrarEstadoAuth("Ingresando…", true);
-  const email = document.getElementById("auth-email").value.trim();
-  const password = document.getElementById("auth-password").value;
-  const { error } = await supabaseClient.auth.signInWithPassword({ email, password });
-  if (error) {
-    mostrarEstadoAuth("Correo o contraseña incorrectos.");
-    return;
-  }
-  await activarBaseCompartida();
-});
-
-document.getElementById("auth-crear").addEventListener("click", async () => {
-  const email = document.getElementById("auth-email").value.trim();
-  const password = document.getElementById("auth-password").value;
-  if (!email || password.length < 6) {
-    mostrarEstadoAuth("Ingresá un correo válido y una contraseña de al menos 6 caracteres.");
-    return;
-  }
-  mostrarEstadoAuth("Creando acceso…", true);
-  const { data, error } = await supabaseClient.auth.signUp({ email, password });
-  if (error) {
-    mostrarEstadoAuth(error.message || "No se pudo crear el acceso.");
-    return;
-  }
-  if (data.session) await activarBaseCompartida();
-  else mostrarEstadoAuth("Acceso creado. Revisá el correo para confirmarlo y después ingresá.", true);
-});
-
-document.getElementById("btn-salir").addEventListener("click", async () => {
-  await supabaseClient.auth.signOut();
-  mostrarEstadoAuth("Sesión cerrada.", true);
-  mostrarAcceso();
-});
 
 /* ==========================================================================
    INICIO
