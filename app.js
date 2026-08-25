@@ -761,8 +761,7 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
 
     const cuerpo = pedidoItems.map(it => {
       const unidTot = it.cajas * it.unidadesPorCaja;
-      const nombreConStock = it.enStock === false ? `${it.nombre} [FUERA DE STOCK]` : it.nombre;
-      const detalle = it.observacion ? `${nombreConStock}\nColor / observaciones: ${it.observacion}` : nombreConStock;
+      const detalle = it.observacion ? `${it.nombre}\nColor / observaciones: ${it.observacion}` : it.nombre;
       return ["", it.codigo || "-", detalle, String(it.cajas), String(unidTot), `$${it.precioUnitario.toFixed(2)}`, `$${(unidTot * it.precioUnitario).toFixed(2)}`];
     });
 
