@@ -51,7 +51,10 @@ const supabaseClient = window.supabase
   : null;
 let baseCompartidaLista = false;
 
-let preciosManuales = LS.get("bb_precios_manuales", {});       // {codigo: precio}
+// Los precios editados al cargar un pedido nunca se conservan para pedidos
+// futuros. Se limpia cualquier ajuste manual de versiones anteriores.
+let preciosManuales = {};
+LS.set("bb_precios_manuales", preciosManuales);
 let preciosImportados = LS.get("bb_precios_importados", {});   // {codigo: {nombre,descripcion,precio,hoja,archivo}}
 let matches = LS.get("bb_matches", { matches: {}, ignorados: [] }); // {matches:{prodId:codigo}, ignorados:[prodId]}
 
@@ -89,11 +92,7 @@ function construirItems() {
     const enStock = p.enStock !== false;
 
     let precio = null, origen = null;
-    if (!enStock) {
-      precio = null; origen = "sin_stock";
-    } else if (codigo && preciosManuales[codigo] !== undefined) {
-      precio = preciosManuales[codigo]; origen = "manual";
-    } else if (codigo && preciosImportados[codigo]) {
+    if (codigo && preciosImportados[codigo]) {
       precio = preciosImportados[codigo].precio; origen = "importado";
     } else if (p.precioReferencia) {
       // Precio confirmado por nombre por Claude/Valentina. Tiene prioridad
@@ -147,8 +146,8 @@ function construirItems() {
     // Sólo agregamos una opción adicional cuando la lista confirma que el
     // código se comparte entre prendas diferentes.
     if (codigosCatalogo.has(codigo) && (nombresPorCodigo[codigo]?.size || 0) <= 1) return;
-    let precio = preciosManuales[codigo] !== undefined ? preciosManuales[codigo] : art.precio;
-    let origen = preciosManuales[codigo] !== undefined ? "manual" : "importado";
+    const precio = art.precio;
+    const origen = "importado";
     items.push({
       idItem: "codigo:" + codigo,
       productoId: null,
@@ -187,13 +186,6 @@ function buscarItems(consulta, limite = 25) {
     return a.nombre.localeCompare(b.nombre);
   });
   return resultados.slice(0, limite);
-}
-
-function fijarPrecioManual(codigo, precio) {
-  if (!codigo) return;
-  preciosManuales[codigo] = precio;
-  guardarPreciosManuales();
-  construirItems();
 }
 
 /* ==========================================================================
@@ -321,13 +313,10 @@ function renderCurvaCaja(item) {
 }
 
 function seleccionarItem(it) {
-  if (!it.enStock) {
-    alert(`${it.nombre} figura sin stock y no se puede agregar al pedido.`);
-    return;
-  }
   itemSeleccionado = it;
   document.getElementById("preview-nombre").textContent = it.nombre;
   let textoCodigo = it.codigo ? it.codigo : "Sin código propio";
+  if (!it.enStock) textoCodigo += " · FUERA DE STOCK (se permite agregar para pedidos anteriores)";
   if (!it.codigo && it.precioOrigen === "referencia_nombre") {
     textoCodigo += " · precio de referencia (vinculado por nombre, sin código de artículo todavía)";
   }
@@ -536,25 +525,17 @@ function renderHistorialPedidos() {
 
 function agregarItemAlPedido() {
   if (!itemSeleccionado) return;
-  if (!itemSeleccionado.enStock) {
-    alert(`${itemSeleccionado.nombre} figura sin stock y no se puede agregar al pedido.`);
-    limpiarSeleccion();
-    return;
-  }
   const cajas = parseInt(document.getElementById("in-cajas").value || "0", 10) || 0;
   const unidCaja = parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0;
   const precio = parseFloat((document.getElementById("preview-precio").value || "0").replace(",", ".")) || 0;
   const observacion = document.getElementById("in-observacion-item").value.trim();
   if (cajas <= 0 || unidCaja <= 0) return;
 
-  if (itemSeleccionado.codigo && itemSeleccionado.precio !== precio) {
-    fijarPrecioManual(itemSeleccionado.codigo, precio);
-  }
-
   pedidoItems.push({
     codigo: itemSeleccionado.codigo,
     nombre: itemSeleccionado.nombre,
     imagenes: itemSeleccionado.imagenes,
+    enStock: itemSeleccionado.enStock,
     cajas, unidadesPorCaja: unidCaja, precioUnitario: precio, observacion
   });
   marcarPedidoConCambios();
@@ -595,7 +576,7 @@ function renderTablaPedido() {
     tr.innerHTML = `
       <td>${celdaFotoHTML(it.imagenes, "miniatura", "miniatura-vacia")}</td>
       <td>${it.codigo || "-"}</td>
-      <td>${it.nombre}</td>
+      <td>${it.nombre}${it.enStock === false ? '<br><span class="etiqueta-sin-stock">FUERA DE STOCK</span>' : ''}</td>
       <td><textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Color u observación">${escaparHTML(it.observacion)}</textarea></td>
       <td><input type="number" min="1" value="${it.cajas}" data-idx="${i}" data-campo="cajas" style="width:56px"></td>
       <td><input type="number" min="1" value="${it.unidadesPorCaja}" data-idx="${i}" data-campo="unidades" style="width:68px"></td>
@@ -780,7 +761,8 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
 
     const cuerpo = pedidoItems.map(it => {
       const unidTot = it.cajas * it.unidadesPorCaja;
-      const detalle = it.observacion ? `${it.nombre}\nColor / observaciones: ${it.observacion}` : it.nombre;
+      const nombreConStock = it.enStock === false ? `${it.nombre} [FUERA DE STOCK]` : it.nombre;
+      const detalle = it.observacion ? `${nombreConStock}\nColor / observaciones: ${it.observacion}` : nombreConStock;
       return ["", it.codigo || "-", detalle, String(it.cajas), String(unidTot), `$${it.precioUnitario.toFixed(2)}`, `$${(unidTot * it.precioUnitario).toFixed(2)}`];
     });
 
@@ -1106,7 +1088,6 @@ document.querySelectorAll(".modal-overlay").forEach(overlay => {
    ========================================================================== */
 document.getElementById("btn-reset").addEventListener("click", () => {
   const detalle = [];
-  if (Object.keys(preciosManuales).length) detalle.push(`${Object.keys(preciosManuales).length} precio(s) editado(s) a mano`);
   if (Object.keys(preciosImportados).length) detalle.push(`${Object.keys(preciosImportados).length} artículo(s) de Excel importados en este navegador`);
   const nMatches = Object.keys(matches.matches || {}).length;
   const nIgnorados = (matches.ignorados || []).length;
