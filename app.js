@@ -297,11 +297,17 @@ function renderCurvaCaja(item) {
         const celdas = talles.map(t => `<td>${r.sizePieces[t] || "–"}</td>`).join("");
         return `<tr><td>${r.color}</td>${celdas}</tr>`;
       }).join("");
-      cont.innerHTML = `<div class="titulo-curva">Caja tipo sugerida: ${item.packaging.totalPieces} unidades</div>
+      const tituloCaja = item.packaging.porColor
+        ? `Caja por color: ${item.packaging.totalPieces} unidades · Indicá el color en la observación`
+        : `Caja tipo sugerida: ${item.packaging.totalPieces} unidades`;
+      cont.innerHTML = `<div class="titulo-curva">${tituloCaja}</div>
         <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
       cont.style.display = "block";
     } else {
-      cont.innerHTML = `<div class="titulo-curva">Caja tipo sugerida: ${item.packaging.totalPieces} unidades</div>`;
+      const tituloCaja = item.packaging.porColor
+        ? `Caja por color: ${item.packaging.totalPieces} unidades · Indicá el color en la observación`
+        : `Caja tipo sugerida: ${item.packaging.totalPieces} unidades`;
+      cont.innerHTML = `<div class="titulo-curva">${tituloCaja}</div>`;
       cont.style.display = "block";
     }
   } else {
@@ -334,7 +340,9 @@ function seleccionarItem(it) {
   renderCurvaCaja(it);
   const observacionItem = document.getElementById("in-observacion-item");
   observacionItem.value = "";
-  observacionItem.placeholder = it.colores && it.colores.length
+  observacionItem.placeholder = it.packaging?.porColor
+    ? `Obligatorio: indicá un color (${(it.colores || []).join(", ")})`
+    : it.colores && it.colores.length
     ? `Colores disponibles: ${it.colores.join(", ")}`
     : "Ej.: Negro y beige; priorizar talle M";
   document.getElementById("in-cajas").focus();
@@ -530,6 +538,11 @@ function agregarItemAlPedido() {
   const precio = parseFloat((document.getElementById("preview-precio").value || "0").replace(",", ".")) || 0;
   const observacion = document.getElementById("in-observacion-item").value.trim();
   if (cajas <= 0 || unidCaja <= 0) return;
+  if (itemSeleccionado.packaging?.porColor && !observacion) {
+    alert("Este producto se vende por color. Indicá el color en la observación antes de agregarlo.");
+    document.getElementById("in-observacion-item").focus();
+    return;
+  }
 
   pedidoItems.push({
     codigo: itemSeleccionado.codigo,
