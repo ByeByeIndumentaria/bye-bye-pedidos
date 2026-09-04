@@ -50,6 +50,63 @@ const supabaseClient = window.supabase
   ? window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY)
   : null;
 let baseCompartidaLista = false;
+let inventarioProductos = new Map();
+let inventarioStock = [];
+let inventarioMovimientos = [];
+
+function filasStockProducto(productId) {
+  return inventarioStock.filter(fila => fila.product_id === productId);
+}
+
+function unidadesColorPorCaja(item) {
+  const cantidades = {};
+  ((item.packaging || {}).rows || []).forEach(fila => {
+    cantidades[fila.color] = (cantidades[fila.color] || 0) + Object.values(fila.sizePieces || {}).reduce((suma, valor) => suma + Number(valor || 0), 0);
+  });
+  return cantidades;
+}
+
+function asignacionesItem(item) {
+  if (!item.productoId || !inventarioProductos.has(item.productoId)) return [];
+  const producto = inventarioProductos.get(item.productoId);
+  const cajas = Number(item.cajas || 0);
+  if (producto.tracking_mode === "total") return [{ productId: item.productoId, variant: "TOTAL", quantity: cajas * Number(item.unidadesPorCaja || 0) }];
+  const porColor = unidadesColorPorCaja(item);
+  if (item.varianteStock && item.varianteStock !== "SURTIDO") {
+    return [{ productId: item.productoId, variant: item.varianteStock, quantity: cajas * Number(porColor[item.varianteStock] || item.unidadesPorCaja || 0) }];
+  }
+  return Object.entries(porColor).map(([variant, unidades]) => ({ productId: item.productoId, variant, quantity: cajas * unidades }));
+}
+
+function asignacionesPedido(items = pedidoItems) {
+  const acumuladas = new Map();
+  items.flatMap(asignacionesItem).forEach(asignacion => {
+    const clave = `${asignacion.productId}|${asignacion.variant}`;
+    acumuladas.set(clave, { ...asignacion, quantity: (acumuladas.get(clave)?.quantity || 0) + asignacion.quantity });
+  });
+  return [...acumuladas.values()];
+}
+
+function disponibilidadAsignaciones(asignaciones) {
+  return asignaciones.map(asignacion => {
+    const fila = inventarioStock.find(stock => stock.product_id === asignacion.productId && stock.variant === asignacion.variant);
+    return { ...asignacion, available: Number(fila?.quantity || 0), ok: Boolean(fila) && asignacion.quantity <= Number(fila.quantity) };
+  });
+}
+
+function estadoStockItem(item) {
+  const asignaciones = disponibilidadAsignaciones(asignacionesItem(item));
+  return { asignaciones, ok: asignaciones.length > 0 && asignaciones.every(fila => fila.ok) };
+}
+
+function normalizarItemPedido(item) {
+  if (item.productoId) return item;
+  const catalogo = ITEMS.find(candidato =>
+    (item.codigo && candidato.codigo === item.codigo && norm(candidato.nombre) === norm(item.nombre)) ||
+    (!item.codigo && norm(candidato.nombre) === norm(item.nombre))
+  );
+  return catalogo ? { ...item, productoId: catalogo.productoId, packaging: catalogo.packaging } : item;
+}
 
 // Los precios editados al cargar un pedido nunca se conservan para pedidos
 // futuros. Se limpia cualquier ajuste manual de versiones anteriores.
@@ -89,7 +146,10 @@ function construirItems() {
       codigosCatalogo.add(codigo);
       articulosUsados.add(`${codigo}|${norm(p.nombre)}`);
     }
-    const enStock = p.enStock !== false;
+    const filasInventario = filasStockProducto(p.id);
+    const enStock = inventarioProductos.has(p.id)
+      ? filasInventario.some(fila => Number(fila.quantity || 0) > 0)
+      : p.enStock !== false;
 
     let precio = null, origen = null;
     if (codigo && preciosImportados[codigo]) {
@@ -338,6 +398,7 @@ function seleccionarItem(it) {
 
   elResultados.classList.remove("visible");
   renderCurvaCaja(it);
+  renderSelectorStock(it);
   const observacionItem = document.getElementById("in-observacion-item");
   observacionItem.value = "";
   observacionItem.placeholder = it.packaging?.porColor
@@ -350,10 +411,66 @@ function seleccionarItem(it) {
   recalcularUnidades();
 }
 
+function renderSelectorStock(item) {
+  const panel = document.getElementById("selector-stock");
+  const select = document.getElementById("in-stock-variante");
+  const info = document.getElementById("stock-disponible");
+  const producto = inventarioProductos.get(item.productoId);
+  panel.style.display = "block";
+  if (!producto) {
+    select.innerHTML = '<option value="">Sin control de stock</option>';
+    select.disabled = true;
+    info.textContent = "Este producto todavía no figura en el inventario cargado.";
+    return;
+  }
+  const filas = filasStockProducto(item.productoId);
+  if (producto.tracking_mode === "total") {
+    select.innerHTML = '<option value="TOTAL">Stock general</option>';
+    select.value = "TOTAL";
+    select.disabled = true;
+    itemSeleccionado.varianteStock = "TOTAL";
+  } else {
+    select.innerHTML = '<option value="">Elegí una opción…</option><option value="SURTIDO">Caja surtida (según curva)</option>' +
+      filas.map(fila => `<option value="${escaparHTML(fila.variant)}">${escaparHTML(fila.variant)}</option>`).join("");
+    select.disabled = false;
+  }
+  const actualizar = () => {
+    itemSeleccionado.varianteStock = select.value;
+    const porColor = unidadesColorPorCaja(itemSeleccionado);
+    if (select.value && select.value !== "SURTIDO" && porColor[select.value]) {
+      document.getElementById("in-unidcaja").value = porColor[select.value];
+    } else if (itemSeleccionado.packaging?.totalPieces) {
+      document.getElementById("in-unidcaja").value = itemSeleccionado.packaging.totalPieces;
+    }
+    recalcularUnidades();
+  };
+  select.onchange = actualizar;
+  actualizar();
+}
+
+function actualizarDisponibilidadSeleccion() {
+  const info = document.getElementById("stock-disponible");
+  if (!itemSeleccionado || !inventarioProductos.has(itemSeleccionado.productoId)) return;
+  const candidato = {
+    ...itemSeleccionado,
+    cajas: parseInt(document.getElementById("in-cajas").value || "0", 10) || 0,
+    unidadesPorCaja: parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0
+  };
+  const estado = estadoStockItem(candidato);
+  if (!estado.asignaciones.length) {
+    info.textContent = candidato.varianteStock ? "No hay una curva válida para esta selección." : "Elegí una variante para ver la disponibilidad.";
+    info.className = "stock-info stock-bajo";
+    return;
+  }
+  info.textContent = estado.asignaciones.map(f => `${f.variant}: pide ${f.quantity}, quedan ${f.available}`).join(" · ");
+  info.className = `stock-info ${estado.ok ? "stock-ok" : "stock-agotado"}`;
+}
+
 function recalcularUnidades() {
   const cajas = parseInt(document.getElementById("in-cajas").value || "0", 10) || 0;
   const unidCaja = parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0;
   document.getElementById("total-unid").textContent = `= ${cajas * unidCaja} unidad(es)`;
+  actualizarDisponibilidadSeleccion();
 }
 document.getElementById("in-cajas").addEventListener("input", recalcularUnidades);
 document.getElementById("in-unidcaja").addEventListener("input", recalcularUnidades);
@@ -409,6 +526,7 @@ function datosPedidoActual() {
     descuento: document.getElementById("in-descuento").value,
     envio: document.getElementById("in-envio").value,
     items: pedidoItems.map(item => ({ ...item, imagenes: [...(item.imagenes || [])] })),
+    stockAllocations: asignacionesPedido(),
     total: resumen.total,
     actualizadoEn: new Date().toISOString()
   };
@@ -432,17 +550,18 @@ async function guardarPedidoActual() {
     return;
   }
   const pedido = datosPedidoActual();
-  const { error } = await supabaseClient.from("orders").upsert(filaPedido(pedido), { onConflict: "id" });
+  const { error } = await supabaseClient.rpc("save_order_with_inventory", { p_order: pedido });
   if (error) {
     console.error(error);
     alert(error.code === "23505"
       ? "Ya existe otro pedido con ese número. Cambiá el número e intentá nuevamente."
-      : "No se pudo guardar el pedido en la base compartida. Revisá la conexión e intentá nuevamente.");
+      : `No se pudo guardar el pedido: ${error.message || "revisá la conexión e intentá nuevamente."}`);
     return;
   }
   pedidoActualId = pedido.id;
   pedidosGuardados = [pedido, ...pedidosGuardados.filter(item => item.id !== pedido.id)];
   LS.set("bb_pedidos_guardados", pedidosGuardados);
+  await cargarInventario();
   marcarPedidoGuardado();
   renderHistorialPedidos();
   alert(`Pedido ${pedido.numero || "sin número"} guardado como ${pedido.estado}.`);
@@ -463,7 +582,7 @@ function cargarPedidoGuardado(id) {
   document.getElementById("f-estado").value = pedido.estado || "Borrador";
   document.getElementById("in-descuento").value = pedido.descuento || 0;
   document.getElementById("in-envio").value = pedido.envio || 0;
-  pedidoItems = (pedido.items || []).map(item => ({ ...item, imagenes: [...(item.imagenes || [])] }));
+  pedidoItems = (pedido.items || []).map(item => normalizarItemPedido({ ...item, imagenes: [...(item.imagenes || [])] }));
   actualizarEstiloEstado();
   renderTablaPedido();
   cargandoPedido = false;
@@ -506,27 +625,15 @@ function renderHistorialPedidos() {
   lista.querySelectorAll("[data-borrar-pedido]").forEach(btn => btn.addEventListener("click", async () => {
     const pedido = pedidosGuardados.find(item => item.id === btn.dataset.borrarPedido);
     if (!pedido || !confirm(`¿Eliminar el pedido ${pedido.numero || "sin número"}?`)) return;
-    const codigo = prompt(`Ingresá el código para eliminar el pedido ${pedido.numero || "sin número"}:`);
-    if (codigo === null) return;
-    const { data, error } = await supabaseClient.functions.invoke("delete-order", {
-      body: { id: pedido.id, password: codigo }
-    });
+    const { error } = await supabaseClient.rpc("delete_order_with_inventory", { p_order_id: pedido.id });
     if (error) {
       console.error(error);
-      let mensaje = "No se pudo eliminar el pedido.";
-      try {
-        const detalle = await error.context?.json();
-        if (detalle?.error) mensaje = detalle.error;
-      } catch (e) { /* conserva el mensaje general */ }
-      alert(mensaje);
-      return;
-    }
-    if (!data?.ok) {
-      alert(data?.error || "No se pudo eliminar el pedido.");
+      alert(`No se pudo eliminar el pedido: ${error.message || "error desconocido"}`);
       return;
     }
     pedidosGuardados = pedidosGuardados.filter(item => item.id !== pedido.id);
     LS.set("bb_pedidos_guardados", pedidosGuardados);
+    await cargarInventario();
     renderHistorialPedidos();
   }));
 }
@@ -538,19 +645,28 @@ function agregarItemAlPedido() {
   const precio = parseFloat((document.getElementById("preview-precio").value || "0").replace(",", ".")) || 0;
   const observacion = document.getElementById("in-observacion-item").value.trim();
   if (cajas <= 0 || unidCaja <= 0) return;
-  if (itemSeleccionado.packaging?.porColor && !observacion) {
-    alert("Este producto se vende por color. Indicá el color en la observación antes de agregarlo.");
-    document.getElementById("in-observacion-item").focus();
+  const productoInventario = inventarioProductos.get(itemSeleccionado.productoId);
+  if (productoInventario?.tracking_mode === "color" && !itemSeleccionado.varianteStock) {
+    alert("Elegí el color o la opción de caja surtida antes de agregar el producto.");
+    document.getElementById("in-stock-variante").focus();
     return;
   }
-
-  pedidoItems.push({
+  const nuevoItem = {
+    productoId: itemSeleccionado.productoId,
     codigo: itemSeleccionado.codigo,
     nombre: itemSeleccionado.nombre,
     imagenes: itemSeleccionado.imagenes,
     enStock: itemSeleccionado.enStock,
+    packaging: itemSeleccionado.packaging,
+    varianteStock: itemSeleccionado.varianteStock || null,
     cajas, unidadesPorCaja: unidCaja, precioUnitario: precio, observacion
-  });
+  };
+  if (productoInventario && disponibilidadAsignaciones(asignacionesPedido([...pedidoItems, nuevoItem])).some(fila => !fila.ok)) {
+    alert("No alcanza el stock disponible para agregar esa cantidad.");
+    actualizarDisponibilidadSeleccion();
+    return;
+  }
+  pedidoItems.push(nuevoItem);
   marcarPedidoConCambios();
   renderTablaPedido();
   limpiarSeleccion();
@@ -570,6 +686,8 @@ function limpiarSeleccion() {
   document.getElementById("label-unidcaja").classList.remove("automatico");
   document.getElementById("curva-caja").style.display = "none";
   document.getElementById("curva-caja").innerHTML = "";
+  document.getElementById("selector-stock").style.display = "none";
+  document.getElementById("in-stock-variante").innerHTML = "";
   recalcularUnidades();
   elBuscador.value = "";
   resultadosActuales = [];
@@ -590,9 +708,9 @@ function renderTablaPedido() {
       <td>${celdaFotoHTML(it.imagenes, "miniatura", "miniatura-vacia")}</td>
       <td>${it.codigo || "-"}</td>
       <td>${it.nombre}${it.enStock === false ? '<br><span class="etiqueta-sin-stock">FUERA DE STOCK</span>' : ''}</td>
-      <td><textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Color u observación">${escaparHTML(it.observacion)}</textarea></td>
+      <td>${it.varianteStock ? `<strong>${escaparHTML(it.varianteStock === "SURTIDO" ? "Caja surtida" : it.varianteStock)}</strong><br>` : ""}<textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Observación">${escaparHTML(it.observacion || "")}</textarea></td>
       <td><input type="number" min="1" value="${it.cajas}" data-idx="${i}" data-campo="cajas" style="width:56px"></td>
-      <td><input type="number" min="1" value="${it.unidadesPorCaja}" data-idx="${i}" data-campo="unidades" style="width:68px"></td>
+      <td><input type="number" min="1" value="${it.unidadesPorCaja}" data-idx="${i}" data-campo="unidades" style="width:68px" ${inventarioProductos.has(it.productoId) ? "readonly" : ""}></td>
       <td><input type="number" step="0.01" value="${it.precioUnitario}" data-idx="${i}" data-campo="precio" style="width:74px"></td>
       <td>$${subtotal.toFixed(2)}</td>
       <td><button class="btn-borrar" data-idx="${i}">✕</button></td>
@@ -601,7 +719,7 @@ function renderTablaPedido() {
   });
 
   tbody.querySelectorAll("input[data-campo='cajas']").forEach(inp => {
-    inp.addEventListener("input", e => {
+    inp.addEventListener("change", e => {
       const idx = +e.target.dataset.idx;
       pedidoItems[idx].cajas = parseInt(e.target.value || "0", 10) || 0;
       marcarPedidoConCambios();
@@ -776,7 +894,9 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
 
     const cuerpo = pedidoItems.map(it => {
       const unidTot = it.cajas * it.unidadesPorCaja;
-      const detalle = it.observacion ? `${it.nombre}\nColor / observaciones: ${it.observacion}` : it.nombre;
+      const variante = it.varianteStock ? (it.varianteStock === "SURTIDO" ? "Caja surtida" : it.varianteStock) : "";
+      const detalleExtra = [variante && `Variante: ${variante}`, it.observacion && `Observaciones: ${it.observacion}`].filter(Boolean).join("\n");
+      const detalle = detalleExtra ? `${it.nombre}\n${detalleExtra}` : it.nombre;
       return ["", it.codigo || "-", detalle, String(it.cajas), String(unidTot), `$${it.precioUnitario.toFixed(2)}`, `$${(unidTot * it.precioUnitario).toFixed(2)}`];
     });
 
@@ -1146,6 +1266,62 @@ function actualizarBarraEstado() {
    BASE COMPARTIDA
    ========================================================================== */
 
+async function cargarInventario() {
+  const [{ data: productos, error: errorProductos }, { data: stock, error: errorStock }, { data: movimientos, error: errorMovimientos }] = await Promise.all([
+    supabaseClient.from("inventory_products").select("*").order("name"),
+    supabaseClient.from("inventory_stock").select("*"),
+    supabaseClient.from("inventory_movements").select("*").order("created_at", { ascending: false }).limit(100)
+  ]);
+  if (errorProductos) throw errorProductos;
+  if (errorStock) throw errorStock;
+  if (errorMovimientos) throw errorMovimientos;
+  inventarioProductos = new Map((productos || []).map(producto => [producto.product_id, producto]));
+  inventarioStock = stock || [];
+  inventarioMovimientos = movimientos || [];
+  construirItems();
+  renderStock();
+}
+
+function estadoFilaStock(fila) {
+  const cantidad = Number(fila.quantity || 0);
+  const inicial = Number(fila.initial_quantity || 0);
+  if (cantidad <= 0) return { clave: "agotado", texto: "Agotado", clase: "stock-agotado" };
+  if (inicial > 0 && cantidad / inicial < 0.10) return { clave: "bajo", texto: "Stock bajo", clase: "stock-bajo" };
+  return { clave: "ok", texto: "Disponible", clase: "stock-ok" };
+}
+
+function renderStock() {
+  const tbody = document.getElementById("tabla-stock");
+  if (!tbody) return;
+  const busqueda = norm(document.getElementById("buscar-stock").value);
+  const filtro = document.getElementById("filtrar-stock").value;
+  const filas = inventarioStock.map(fila => ({ ...fila, producto: inventarioProductos.get(fila.product_id) })).filter(fila => {
+    const estado = estadoFilaStock(fila);
+    return fila.producto && (!busqueda || norm(`${fila.producto.code} ${fila.producto.name} ${fila.variant}`).includes(busqueda)) && (!filtro || estado.clave === filtro);
+  }).sort((a, b) => `${a.producto.season} ${a.producto.name} ${a.variant}`.localeCompare(`${b.producto.season} ${b.producto.name} ${b.variant}`, "es"));
+  tbody.innerHTML = filas.map(fila => {
+    const estado = estadoFilaStock(fila);
+    return `<tr><td>${escaparHTML(fila.producto.season)}</td><td>${escaparHTML(fila.producto.code || "-")}</td><td>${escaparHTML(fila.producto.name)}</td><td>${escaparHTML(fila.variant === "TOTAL" ? "Stock general" : fila.variant)}</td><td class="numero">${fila.initial_quantity}</td><td class="numero"><strong>${fila.quantity}</strong></td><td class="${estado.clase}">${estado.texto}</td><td><button class="btn" data-ajustar-stock="${fila.product_id}" data-variante="${escaparHTML(fila.variant)}">Ajustar</button></td></tr>`;
+  }).join("") || '<tr><td colspan="8">No hay resultados.</td></tr>';
+  const agotados = inventarioStock.filter(fila => estadoFilaStock(fila).clave === "agotado").length;
+  const bajos = inventarioStock.filter(fila => estadoFilaStock(fila).clave === "bajo").length;
+  document.getElementById("resumen-stock").textContent = `${inventarioProductos.size} productos · ${inventarioStock.length} posiciones · ${bajos} con stock bajo · ${agotados} agotadas`;
+  document.getElementById("tabla-movimientos").innerHTML = inventarioMovimientos.map(movimiento => {
+    const producto = inventarioProductos.get(movimiento.product_id);
+    return `<tr><td>${new Date(movimiento.created_at).toLocaleString("es-AR")}</td><td>${escaparHTML(movimiento.order_number || "-")}</td><td>${escaparHTML(producto?.name || String(movimiento.product_id))}</td><td>${escaparHTML(movimiento.variant)}</td><td class="numero ${movimiento.quantity_delta < 0 ? "stock-agotado" : "stock-ok"}">${movimiento.quantity_delta > 0 ? "+" : ""}${movimiento.quantity_delta}</td><td>${escaparHTML(movimiento.reason)}</td></tr>`;
+  }).join("") || '<tr><td colspan="6">Todavía no hay movimientos.</td></tr>';
+  tbody.querySelectorAll("[data-ajustar-stock]").forEach(btn => btn.addEventListener("click", async () => {
+    const fila = inventarioStock.find(item => item.product_id === btn.dataset.ajustarStock && item.variant === btn.dataset.variante);
+    const nueva = prompt("Nueva cantidad disponible:", String(fila?.quantity ?? 0));
+    if (nueva === null || !/^\d+$/.test(nueva.trim())) return;
+    const motivo = prompt("Motivo del ajuste (obligatorio):", "Conteo manual");
+    if (!motivo?.trim()) return;
+    const { error } = await supabaseClient.rpc("adjust_inventory", { p_product_id: btn.dataset.ajustarStock, p_variant: btn.dataset.variante, p_new_quantity: Number(nueva), p_reason: motivo.trim() });
+    if (error) return alert(`No se pudo ajustar el stock: ${error.message}`);
+    await cargarInventario();
+  }));
+}
+
 async function cargarPedidosDesdeBase() {
   const { data, error } = await supabaseClient
     .from("orders")
@@ -1169,6 +1345,7 @@ async function migrarPedidosLocales() {
 async function activarBaseCompartida() {
   document.getElementById("estado-base").textContent = "Sincronizando pedidos…";
   try {
+    await cargarInventario();
     await migrarPedidosLocales();
     await cargarPedidosDesdeBase();
     baseCompartidaLista = true;
@@ -1214,6 +1391,12 @@ document.getElementById("btn-historial").addEventListener("click", async () => {
 });
 document.getElementById("buscar-pedidos").addEventListener("input", renderHistorialPedidos);
 document.getElementById("filtrar-estado").addEventListener("change", renderHistorialPedidos);
+document.getElementById("btn-stock").addEventListener("click", async () => {
+  try { await cargarInventario(); } catch (error) { console.error(error); alert("No se pudo actualizar el stock."); }
+  abrirModal("modal-stock");
+});
+document.getElementById("buscar-stock").addEventListener("input", renderStock);
+document.getElementById("filtrar-stock").addEventListener("change", renderStock);
 window.addEventListener("beforeunload", event => {
   if (!pedidoConCambios) return;
   event.preventDefault();
