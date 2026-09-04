@@ -649,16 +649,18 @@ function renderTablaPedido() {
 
 function obtenerResumen() {
   const subtotal = pedidoItems.reduce((acc, it) => acc + it.cajas * it.unidadesPorCaja * it.precioUnitario, 0);
+  const totalUnidades = pedidoItems.reduce((acc, it) => acc + it.cajas * it.unidadesPorCaja, 0);
   const descuentoPct = parseFloat(document.getElementById("in-descuento").value || "0") || 0;
   const envio = parseFloat(document.getElementById("in-envio").value || "0") || 0;
   const montoDescuento = subtotal * (descuentoPct / 100);
   const total = subtotal - montoDescuento + envio;
-  return { subtotal, descuentoPct, envio, montoDescuento, total };
+  return { subtotal, totalUnidades, descuentoPct, envio, montoDescuento, total };
 }
 
 function recalcularResumen() {
   const r = obtenerResumen();
   document.getElementById("txt-subtotal").textContent = `Subtotal: $${r.subtotal.toFixed(2)}`;
+  document.getElementById("txt-total-unidades").textContent = `TOTAL UNIDADES: ${r.totalUnidades}`;
   document.getElementById("txt-total").textContent = `TOTAL: $${r.total.toFixed(2)}`;
 }
 document.getElementById("in-descuento").addEventListener("input", recalcularResumen);
@@ -816,6 +818,7 @@ document.getElementById("btn-pdf").addEventListener("click", async () => {
     if (y + lineasExtra * 5 > 282) { doc.addPage(); y = 18; }
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
+    doc.text(`TOTAL UNIDADES: ${r.totalUnidades}`, 12, y);
     doc.text(`Subtotal: $${r.subtotal.toFixed(2)}`, 198, y, { align: "right" });
     y += 5;
     if (r.descuentoPct) { doc.text(`Descuento (${r.descuentoPct}%): -$${r.montoDescuento.toFixed(2)}`, 198, y, { align: "right" }); y += 5; }
