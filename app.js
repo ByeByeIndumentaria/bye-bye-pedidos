@@ -153,6 +153,11 @@ if (richardHoodBoys) {
 const milanHoodTaffetaBoys = CATALOGO.find(item => item.id === 251);
 if (milanHoodTaffetaBoys) {
   milanHoodTaffetaBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_251_${numero}.jpg?v=20260910-01`);
+  milanHoodTaffetaBoys.colores = milanHoodTaffetaBoys.colores.map(color => color === "Verde Oscuro" ? "Gris Oscuro" : color);
+  milanHoodTaffetaBoys.packaging.rows = milanHoodTaffetaBoys.packaging.rows.map(fila => ({
+    ...fila,
+    color: fila.color === "Verde Oscuro" ? "Gris Oscuro" : fila.color
+  }));
 }
 
 const harryHoodJacketBoys = CATALOGO.find(item => item.id === 252);
