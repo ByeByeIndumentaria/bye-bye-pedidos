@@ -163,12 +163,11 @@ if (milanHoodTaffetaBoys) {
 const harryHoodJacketBoys = CATALOGO.find(item => item.id === 252);
 if (harryHoodJacketBoys) {
   harryHoodJacketBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_252_${numero}.jpg?v=20260910-01`);
-  harryHoodJacketBoys.colores = ["Verde militar", "Negro", "Azul Marino", "Azul", "Mostaza", "Gris", "Rojo"];
-  harryHoodJacketBoys.packaging.totalPieces = 42;
-  harryHoodJacketBoys.packaging.totalLabel = "6 piezas por color · 42 piezas totales";
-  harryHoodJacketBoys.packaging.rows = harryHoodJacketBoys.packaging.rows
-    .filter(fila => fila.color !== "Army")
-    .map(fila => ({ ...fila, color: fila.color === "Militar" ? "Verde militar" : fila.color === "Piedra" ? "Gris" : fila.color }));
+  harryHoodJacketBoys.colores = ["Verde/Azul", "Negro/Mostaza", "Azul/Rojo", "Verde/Gris"];
+  harryHoodJacketBoys.packaging.totalPieces = 24;
+  harryHoodJacketBoys.packaging.totalLabel = "6 piezas por color · 24 piezas totales";
+  const curvaHarry = { "6": 1, "8": 1, "10": 1, "12": 1, "14": 1, "16": 1 };
+  harryHoodJacketBoys.packaging.rows = harryHoodJacketBoys.colores.map(color => ({ color, sizePieces: { ...curvaHarry } }));
 }
 
 const corvelKidsUnisex = CATALOGO.find(item => item.id === 253);
