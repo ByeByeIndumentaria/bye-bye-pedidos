@@ -176,6 +176,12 @@ if (lustraGirls) {
   lustraGirls.imagenes = [1, 2, 3, 4].map(numero => `images/prod_254_${numero}.jpg?v=20260910-01`);
 }
 
+const sweaterNala = CATALOGO.find(item => item.id === 227);
+if (sweaterNala) {
+  sweaterNala.packaging.totalPieces = 30;
+  sweaterNala.packaging.totalLabel = "Caja surtida de 30 piezas";
+}
+
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
 const VERSION_LISTA_MAESTRA = "2026-08-24-general-2026-2027";
