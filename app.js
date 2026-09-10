@@ -178,6 +178,11 @@ if (corvelKidsUnisex) {
 const lustraGirls = CATALOGO.find(item => item.id === 254);
 if (lustraGirls) {
   lustraGirls.imagenes = [1, 2, 3, 4].map(numero => `images/prod_254_${numero}.jpg?v=20260910-01`);
+  lustraGirls.colores = lustraGirls.colores.map(color => color === "Morado" ? "Violeta" : color);
+  lustraGirls.packaging.rows = lustraGirls.packaging.rows.map(fila => ({
+    ...fila,
+    color: fila.color === "Morado" ? "Violeta" : fila.color
+  }));
 }
 
 const sweaterNala = CATALOGO.find(item => item.id === 227);
