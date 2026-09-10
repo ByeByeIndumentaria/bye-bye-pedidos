@@ -115,6 +115,31 @@ LS.set("bb_precios_manuales", preciosManuales);
 let preciosImportados = LS.get("bb_precios_importados", {});   // {codigo: {nombre,descripcion,precio,hoja,archivo}}
 let matches = LS.get("bb_matches", { matches: {}, ignorados: [] }); // {matches:{prodId:codigo}, ignorados:[prodId]}
 
+// Ajustes comerciales vigentes (10/09/2026). Se aplican sobre el catálogo
+// embebido para que la búsqueda de pedidos refleje la disponibilidad actual.
+const productosAgotados = new Set([163, 172, 174, 188]);
+CATALOGO.forEach(producto => {
+  if (productosAgotados.has(producto.id)) producto.enStock = false;
+});
+const felipeHoodFur = CATALOGO.find(producto => producto.id === 70);
+if (felipeHoodFur) {
+  felipeHoodFur.enStock = true;
+  felipeHoodFur.colores = ["Negro"];
+  if (felipeHoodFur.packaging?.rows) {
+    felipeHoodFur.packaging.rows = felipeHoodFur.packaging.rows.filter(fila => fila.color === "Negro");
+    felipeHoodFur.packaging.totalPieces = felipeHoodFur.packaging.rows.reduce(
+      (total, fila) => total + Object.values(fila.sizePieces || {}).reduce((suma, cantidad) => suma + Number(cantidad || 0), 0),
+      0
+    );
+  }
+}
+
+// Las fichas infantiles nuevas usan una lámina de producto por artículo.
+for (const id of [249, 250, 251, 252, 253, 254]) {
+  const producto = CATALOGO.find(item => item.id === id);
+  if (producto) producto.imagenes = [`images/prod_${id}_1.jpg?v=20260910-camperas-ninos`];
+}
+
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
 const VERSION_LISTA_MAESTRA = "2026-08-24-general-2026-2027";
