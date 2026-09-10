@@ -135,9 +135,45 @@ if (felipeHoodFur) {
 }
 
 // Las fichas infantiles nuevas usan una lámina de producto por artículo.
-for (const id of [249, 250, 251, 252, 253, 254]) {
+for (const id of [249, 250, 251, 253]) {
   const producto = CATALOGO.find(item => item.id === id);
   if (producto) producto.imagenes = [`images/prod_${id}_1.jpg?v=20260910-camperas-ninos`];
+}
+
+const richardHoodBlockBoys = CATALOGO.find(item => item.id === 249);
+if (richardHoodBlockBoys) {
+  richardHoodBlockBoys.imagenes = [1, 2, 3].map(numero => `images/prod_249_${numero}.jpg?v=20260910-01`);
+}
+
+const richardHoodBoys = CATALOGO.find(item => item.id === 250);
+if (richardHoodBoys) {
+  richardHoodBoys.imagenes = [1, 2, 3].map(numero => `images/prod_250_${numero}.jpg?v=20260910-01`);
+}
+
+const milanHoodTaffetaBoys = CATALOGO.find(item => item.id === 251);
+if (milanHoodTaffetaBoys) {
+  milanHoodTaffetaBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_251_${numero}.jpg?v=20260910-01`);
+}
+
+const harryHoodJacketBoys = CATALOGO.find(item => item.id === 252);
+if (harryHoodJacketBoys) {
+  harryHoodJacketBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_252_${numero}.jpg?v=20260910-01`);
+  harryHoodJacketBoys.colores = ["Verde militar", "Negro", "Azul Marino", "Azul", "Mostaza", "Gris", "Rojo"];
+  harryHoodJacketBoys.packaging.totalPieces = 42;
+  harryHoodJacketBoys.packaging.totalLabel = "6 piezas por color · 42 piezas totales";
+  harryHoodJacketBoys.packaging.rows = harryHoodJacketBoys.packaging.rows
+    .filter(fila => fila.color !== "Army")
+    .map(fila => ({ ...fila, color: fila.color === "Militar" ? "Verde militar" : fila.color === "Piedra" ? "Gris" : fila.color }));
+}
+
+const corvelKidsUnisex = CATALOGO.find(item => item.id === 253);
+if (corvelKidsUnisex) {
+  corvelKidsUnisex.imagenes = [1, 2].map(numero => `images/prod_253_${numero}.jpg?v=20260910-01`);
+}
+
+const lustraGirls = CATALOGO.find(item => item.id === 254);
+if (lustraGirls) {
+  lustraGirls.imagenes = [1, 2, 3, 4].map(numero => `images/prod_254_${numero}.jpg?v=20260910-01`);
 }
 
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios

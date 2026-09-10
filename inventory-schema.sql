@@ -60,7 +60,8 @@ declare
   v_old_affects boolean := false;
   v_new_affects boolean := public.order_affects_stock(p_order->>'estado');
 begin
-  select payload into v_old from public.orders where id = v_id for update;
+  -- public.orders.id is text, while movement order ids are UUIDs.
+  select payload into v_old from public.orders where id = v_id::text for update;
   v_old_affects := v_old is not null and public.order_affects_stock(v_old->>'estado');
 
   if v_old_affects then
@@ -100,7 +101,7 @@ begin
   end if;
 
   insert into public.orders(id, number, customer, status, order_date, payload, updated_at)
-  values (v_id, coalesce(nullif(p_order->>'numero', ''), 'SIN-NUMERO-' || v_id), coalesce(p_order->>'cliente', ''), coalesce(p_order->>'estado', 'Borrador'), null, p_order, now())
+  values (v_id::text, coalesce(nullif(p_order->>'numero', ''), 'SIN-NUMERO-' || v_id::text), coalesce(p_order->>'cliente', ''), coalesce(p_order->>'estado', 'Borrador'), null, p_order, now())
   on conflict (id) do update set number=excluded.number, customer=excluded.customer, status=excluded.status, payload=excluded.payload, updated_at=now();
   return jsonb_build_object('ok', true);
 end;
@@ -116,7 +117,7 @@ declare
   v_old jsonb;
   v_allocation jsonb;
 begin
-  select payload into v_old from public.orders where id = p_order_id for update;
+  select payload into v_old from public.orders where id = p_order_id::text for update;
   if v_old is null then return jsonb_build_object('ok', true); end if;
   if public.order_affects_stock(v_old->>'estado') then
     for v_allocation in select value from jsonb_array_elements(coalesce(v_old->'stockAllocations', '[]'::jsonb)) loop
@@ -126,7 +127,7 @@ begin
       values ((v_allocation->>'productId')::integer, v_allocation->>'variant', (v_allocation->>'quantity')::integer, p_order_id, v_old->>'numero', 'Pedido eliminado');
     end loop;
   end if;
-  delete from public.orders where id = p_order_id;
+  delete from public.orders where id = p_order_id::text;
   return jsonb_build_object('ok', true);
 end;
 $$;
