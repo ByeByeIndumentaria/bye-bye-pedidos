@@ -228,9 +228,7 @@ function construirItems() {
       : p.enStock !== false;
 
     let precio = null, origen = null;
-    if (codigo && preciosImportados[codigo]) {
-      precio = preciosImportados[codigo].precio; origen = "importado";
-    } else if (p.precioReferencia) {
+    if (p.precioReferencia) {
       // Precio confirmado por nombre por Claude/Valentina. Tiene prioridad
       // sobre el precio "de base" por código en los casos donde el código
       // del catálogo está duplicado entre dos productos distintos (por
@@ -238,6 +236,8 @@ function construirItems() {
       // "corto" de un mismo modelo) — así cada uno conserva SU precio real
       // en vez de heredar por error el precio del otro.
       precio = p.precioReferencia.precio; origen = "referencia_nombre";
+    } else if (codigo && preciosImportados[codigo]?.precio != null) {
+      precio = preciosImportados[codigo].precio; origen = "importado";
     } else if (codigo && PRECIOS_BASE_MAP[codigo]) {
       precio = PRECIOS_BASE_MAP[codigo].precio; origen = "base";
     }
@@ -414,44 +414,38 @@ function celdaFotoHTML(imagenes, claseImg, claseVacia) {
 
 function renderCurvaCaja(item) {
   const cont = document.getElementById("curva-caja");
-  const labelUnidCaja = document.getElementById("label-unidcaja");
-  const inputUnidCaja = document.getElementById("in-unidcaja");
-
-  if (item && item.packaging && item.packaging.totalPieces) {
-    inputUnidCaja.value = item.packaging.totalPieces;
-    inputUnidCaja.readOnly = false;
-    labelUnidCaja.classList.add("automatico");
-
-    const rows = item.packaging.rows || [];
-    // Juntamos todos los talles que aparecen en cualquier fila, en orden.
-    const talles = [];
-    rows.forEach(r => Object.keys(r.sizePieces || {}).forEach(t => { if (!talles.includes(t)) talles.push(t); }));
-
-    if (rows.length) {
-      let thead = "<tr><th>Color</th>" + talles.map(t => `<th>${t}</th>`).join("") + "</tr>";
-      let tbody = rows.map(r => {
-        const celdas = talles.map(t => `<td>${r.sizePieces[t] || "–"}</td>`).join("");
-        return `<tr><td>${r.color}</td>${celdas}</tr>`;
-      }).join("");
-      const tituloCaja = item.packaging.porColor
-        ? `Caja por color: ${item.packaging.totalPieces} unidades · Indicá el color en la observación`
-        : `Caja tipo sugerida: ${item.packaging.totalPieces} unidades`;
-      cont.innerHTML = `<div class="titulo-curva">${tituloCaja}</div>
-        <table><thead>${thead}</thead><tbody>${tbody}</tbody></table>`;
-      cont.style.display = "block";
-    } else {
-      const tituloCaja = item.packaging.porColor
-        ? `Caja por color: ${item.packaging.totalPieces} unidades · Indicá el color en la observación`
-        : `Caja tipo sugerida: ${item.packaging.totalPieces} unidades`;
-      cont.innerHTML = `<div class="titulo-curva">${tituloCaja}</div>`;
-      cont.style.display = "block";
-    }
-  } else {
-    inputUnidCaja.readOnly = false;
-    labelUnidCaja.classList.remove("automatico");
-    cont.style.display = "none";
-    cont.innerHTML = "";
+  const label = document.getElementById("label-unidcaja");
+  const input = document.getElementById("in-unidcaja");
+  const pack = item?.packaging;
+  input.readOnly = false;
+  label.classList.toggle("automatico", !!pack?.totalPieces);
+  if (!pack) {
+    input.value = "";
+    cont.textContent = "Curva pendiente de confirmar. Completá las unidades por caja.";
+    cont.style.display = item ? "block" : "none";
+    return;
   }
+  const color = item.varianteStock;
+  const selected = color && !["TOTAL", "SURTIDO"].includes(color);
+  const rows = (pack.rows || []).filter(r => !selected || r.color === color);
+  const talles = [...new Set(rows.flatMap(r => Object.keys(r.sizePieces || {})))];
+  const rowTotal = r => Object.values(r.sizePieces || {}).reduce((sum, n) => sum + (Number(n) || 0), 0);
+  const selectedTotal = selected && !pack.pendienteConfirmacion ? rows.reduce((sum, r) => sum + rowTotal(r), 0) : 0;
+  const units = selectedTotal || pack.totalPieces;
+  input.value = units > 0 ? units : "";
+  const title = pack.pendienteConfirmacion
+    ? "Curva pendiente de confirmar"
+    : selected ? "Caja de " + color + ": " + units + " unidades"
+    : pack.porColor ? "Caja por color: " + units + " unidades (cada fila es una alternativa)"
+    : "Caja surtida: " + units + " unidades";
+  const note = pack.pendienteConfirmacion || "";
+  const header = "<tr><th>Color</th>" + talles.map(t => "<th>" + escaparHTML(t) + "</th>").join("") + "<th>Total</th></tr>";
+  const body = rows.map(r => "<tr><td>" + escaparHTML(r.color) + "</td>" + talles.map(t => "<td>" + (r.sizePieces?.[t] == null ? "?" : r.sizePieces[t]) + "</td>").join("") + "<td>" + (Object.keys(r.sizePieces || {}).length && Object.values(r.sizePieces).every(v => v != null) ? rowTotal(r) : escaparHTML(r.curveText || "A confirmar")) + "</td></tr>").join("");
+  cont.innerHTML = '<div class="titulo-curva">' + escaparHTML(title) + '</div>' +
+    (note ? '<p>' + escaparHTML(note) + '</p>' : '') +
+    (rows.length ? '<table><thead>' + header + '</thead><tbody>' + body + '</tbody></table>' : '') +
+    (!units ? '<p>Completá las unidades por caja una vez confirmadas.</p>' : '');
+  cont.style.display = "block";
 }
 
 function seleccionarItem(it) {
@@ -506,18 +500,13 @@ function renderSelectorStock(item) {
     select.disabled = true;
     itemSeleccionado.varianteStock = "TOTAL";
   } else {
-    select.innerHTML = '<option value="">Elegí una opción…</option><option value="SURTIDO">Caja surtida (según curva)</option>' +
+    select.innerHTML = '<option value="">Elegí una opción…</option>' + (item.packaging?.porColor ? '' : '<option value="SURTIDO">Caja surtida (según curva)</option>') +
       filas.map(fila => `<option value="${escaparHTML(fila.variant)}">${escaparHTML(fila.variant)}</option>`).join("");
     select.disabled = false;
   }
   const actualizar = () => {
     itemSeleccionado.varianteStock = select.value;
-    const porColor = unidadesColorPorCaja(itemSeleccionado);
-    if (select.value && select.value !== "SURTIDO" && porColor[select.value]) {
-      document.getElementById("in-unidcaja").value = porColor[select.value];
-    } else if (itemSeleccionado.packaging?.totalPieces) {
-      document.getElementById("in-unidcaja").value = itemSeleccionado.packaging.totalPieces;
-    }
+    renderCurvaCaja(itemSeleccionado);
     recalcularUnidades();
   };
   select.onchange = actualizar;
