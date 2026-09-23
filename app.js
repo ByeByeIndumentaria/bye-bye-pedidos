@@ -185,12 +185,6 @@ if (lustraGirls) {
   }));
 }
 
-const sweaterNala = CATALOGO.find(item => item.id === 227);
-if (sweaterNala) {
-  sweaterNala.packaging.totalPieces = 30;
-  sweaterNala.packaging.totalLabel = "Caja surtida de 30 piezas";
-}
-
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
 const VERSION_LISTA_MAESTRA = "2026-08-24-general-2026-2027";
@@ -418,10 +412,11 @@ function renderCurvaCaja(item) {
   const input = document.getElementById("in-unidcaja");
   const pack = item?.packaging;
   input.readOnly = false;
+  input.placeholder = "-";
   label.classList.toggle("automatico", !!pack?.totalPieces);
   if (!pack) {
     input.value = "";
-    cont.textContent = "Curva pendiente de confirmar. Completá las unidades por caja.";
+    cont.textContent = "";
     cont.style.display = item ? "block" : "none";
     return;
   }
@@ -440,11 +435,10 @@ function renderCurvaCaja(item) {
     : "Caja surtida: " + units + " unidades";
   const note = pack.pendienteConfirmacion || "";
   const header = "<tr><th>Color</th>" + talles.map(t => "<th>" + escaparHTML(t) + "</th>").join("") + "<th>Total</th></tr>";
-  const body = rows.map(r => "<tr><td>" + escaparHTML(r.color) + "</td>" + talles.map(t => "<td>" + (r.sizePieces?.[t] == null ? "?" : r.sizePieces[t]) + "</td>").join("") + "<td>" + (Object.keys(r.sizePieces || {}).length && Object.values(r.sizePieces).every(v => v != null) ? rowTotal(r) : escaparHTML(r.curveText || "A confirmar")) + "</td></tr>").join("");
-  cont.innerHTML = '<div class="titulo-curva">' + escaparHTML(title) + '</div>' +
-    (note ? '<p>' + escaparHTML(note) + '</p>' : '') +
+  const body = rows.map(r => "<tr><td>" + escaparHTML(r.color) + "</td>" + talles.map(t => "<td>" + (r.sizePieces?.[t] == null ? "-" : r.sizePieces[t]) + "</td>").join("") + "<td>" + (Object.keys(r.sizePieces || {}).length && Object.values(r.sizePieces).every(v => v != null) ? rowTotal(r) : "-") + "</td></tr>").join("");
+  cont.innerHTML = (units > 0 ? '<div class="titulo-curva">' + escaparHTML(title) + '</div>' : '') +
     (rows.length ? '<table><thead>' + header + '</thead><tbody>' + body + '</tbody></table>' : '') +
-    (!units ? '<p>Completá las unidades por caja una vez confirmadas.</p>' : '');
+    '';
   cont.style.display = "block";
 }
 
