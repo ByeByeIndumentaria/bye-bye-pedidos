@@ -115,79 +115,9 @@ LS.set("bb_precios_manuales", preciosManuales);
 let preciosImportados = LS.get("bb_precios_importados", {});   // {codigo: {nombre,descripcion,precio,hoja,archivo}}
 let matches = LS.get("bb_matches", { matches: {}, ignorados: [] }); // {matches:{prodId:codigo}, ignorados:[prodId]}
 
-// Ajustes comerciales vigentes (10/09/2026). Se aplican sobre el catálogo
-// embebido para que la búsqueda de pedidos refleje la disponibilidad actual.
-const productosAgotados = new Set([163, 172, 174, 188]);
-CATALOGO.forEach(producto => {
-  if (productosAgotados.has(producto.id)) producto.enStock = false;
-});
-const felipeHoodFur = CATALOGO.find(producto => producto.id === 70);
-if (felipeHoodFur) {
-  felipeHoodFur.enStock = true;
-  felipeHoodFur.colores = ["Negro"];
-  if (felipeHoodFur.packaging?.rows) {
-    felipeHoodFur.packaging.rows = felipeHoodFur.packaging.rows.filter(fila => fila.color === "Negro");
-    felipeHoodFur.packaging.totalPieces = felipeHoodFur.packaging.rows.reduce(
-      (total, fila) => total + Object.values(fila.sizePieces || {}).reduce((suma, cantidad) => suma + Number(cantidad || 0), 0),
-      0
-    );
-  }
-}
-
-// Las fichas infantiles nuevas usan una lámina de producto por artículo.
-for (const id of [249, 250, 251, 253]) {
-  const producto = CATALOGO.find(item => item.id === id);
-  if (producto) producto.imagenes = [`images/prod_${id}_1.jpg?v=20260910-camperas-ninos`];
-}
-
-const richardHoodBlockBoys = CATALOGO.find(item => item.id === 249);
-if (richardHoodBlockBoys) {
-  richardHoodBlockBoys.imagenes = [1, 2, 3].map(numero => `images/prod_249_${numero}.jpg?v=20260910-01`);
-}
-
-const richardHoodBoys = CATALOGO.find(item => item.id === 250);
-if (richardHoodBoys) {
-  richardHoodBoys.imagenes = [1, 2, 3].map(numero => `images/prod_250_${numero}.jpg?v=20260910-01`);
-}
-
-const milanHoodTaffetaBoys = CATALOGO.find(item => item.id === 251);
-if (milanHoodTaffetaBoys) {
-  milanHoodTaffetaBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_251_${numero}.jpg?v=20260910-01`);
-  milanHoodTaffetaBoys.colores = milanHoodTaffetaBoys.colores.map(color => color === "Verde Oscuro" ? "Gris Oscuro" : color);
-  milanHoodTaffetaBoys.packaging.rows = milanHoodTaffetaBoys.packaging.rows.map(fila => ({
-    ...fila,
-    color: fila.color === "Verde Oscuro" ? "Gris Oscuro" : fila.color
-  }));
-}
-
-const harryHoodJacketBoys = CATALOGO.find(item => item.id === 252);
-if (harryHoodJacketBoys) {
-  harryHoodJacketBoys.imagenes = [1, 2, 3, 4].map(numero => `images/prod_252_${numero}.jpg?v=20260910-01`);
-  harryHoodJacketBoys.colores = ["Verde/Azul", "Negro/Mostaza", "Azul/Rojo", "Verde/Gris"];
-  harryHoodJacketBoys.packaging.totalPieces = 24;
-  harryHoodJacketBoys.packaging.totalLabel = "6 piezas por color · 24 piezas totales";
-  const curvaHarry = { "6": 1, "8": 1, "10": 1, "12": 1, "14": 1, "16": 1 };
-  harryHoodJacketBoys.packaging.rows = harryHoodJacketBoys.colores.map(color => ({ color, sizePieces: { ...curvaHarry } }));
-}
-
-const corvelKidsUnisex = CATALOGO.find(item => item.id === 253);
-if (corvelKidsUnisex) {
-  corvelKidsUnisex.imagenes = [1, 2].map(numero => `images/prod_253_${numero}.jpg?v=20260910-01`);
-}
-
-const lustraGirls = CATALOGO.find(item => item.id === 254);
-if (lustraGirls) {
-  lustraGirls.imagenes = [1, 2, 3, 4].map(numero => `images/prod_254_${numero}.jpg?v=20260910-01`);
-  lustraGirls.colores = lustraGirls.colores.map(color => color === "Morado" ? "Violeta" : color);
-  lustraGirls.packaging.rows = lustraGirls.packaging.rows.map(fila => ({
-    ...fila,
-    color: fila.color === "Morado" ? "Violeta" : fila.color
-  }));
-}
-
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
-const VERSION_LISTA_MAESTRA = "2026-08-24-general-2026-2027";
+const VERSION_LISTA_MAESTRA = "2026-09-24-precios-y-curvas";
 if (LS.get("bb_version_lista_maestra", "") !== VERSION_LISTA_MAESTRA) {
   preciosManuales = {};
   preciosImportados = {};
