@@ -117,7 +117,7 @@ let matches = LS.get("bb_matches", { matches: {}, ignorados: [] }); // {matches:
 
 // Al publicar una lista maestra nueva se eliminan una sola vez los precios
 // viejos guardados en cada navegador, para que no pisen la actualización.
-const VERSION_LISTA_MAESTRA = "2026-09-24-precios-y-curvas";
+const VERSION_LISTA_MAESTRA = "2026-09-29-precios-hombre";
 if (LS.get("bb_version_lista_maestra", "") !== VERSION_LISTA_MAESTRA) {
   preciosManuales = {};
   preciosImportados = {};
