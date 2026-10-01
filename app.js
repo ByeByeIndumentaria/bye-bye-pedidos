@@ -237,7 +237,6 @@ function buscarItems(consulta, limite = 25) {
   const palabras = q.split(/\s+/).filter(Boolean);
   let resultados = ITEMS.filter(it => palabras.every(p => it.busqueda.includes(p)));
   resultados.sort((a, b) => {
-    if (a.enStock !== b.enStock) return a.enStock ? -1 : 1;
     const aPref = a.codigo && norm(a.codigo).startsWith(q) ? 0 : 1;
     const bPref = b.codigo && norm(b.codigo).startsWith(q) ? 0 : 1;
     if (aPref !== bPref) return aPref - bPref;
@@ -261,14 +260,11 @@ function renderResultados() {
   resultadosActuales.forEach((it, i) => {
     const li = document.createElement("li");
     li.dataset.index = i;
-    if (!it.enStock) li.classList.add("sin-stock");
     const spanNombre = document.createElement("span");
     spanNombre.textContent = it.nombre + (it.tieneFoto ? "" : "");
     const spanCodigo = document.createElement("span");
     spanCodigo.className = it.tieneFoto ? "codigo" : "codigo sinfoto";
-    spanCodigo.textContent = !it.enStock
-      ? `${it.codigo || "sin código"} · SIN STOCK`
-      : (it.codigo || "sin código") + (it.tieneFoto ? "" : " · sin foto");
+    spanCodigo.textContent = (it.codigo || "sin código") + (it.tieneFoto ? "" : " · sin foto");
     li.appendChild(spanNombre);
     li.appendChild(spanCodigo);
     li.addEventListener("click", () => seleccionarItem(it));
@@ -376,7 +372,6 @@ function seleccionarItem(it) {
   itemSeleccionado = it;
   document.getElementById("preview-nombre").textContent = it.nombre;
   let textoCodigo = it.codigo ? it.codigo : "Sin código propio";
-  if (!it.enStock) textoCodigo += " · FUERA DE STOCK (se permite agregar para pedidos anteriores)";
   if (!it.codigo && it.precioOrigen === "referencia_nombre") {
     textoCodigo += " · precio de referencia (vinculado por nombre, sin código de artículo todavía)";
   }
@@ -408,18 +403,16 @@ function seleccionarItem(it) {
 function renderSelectorStock(item) {
   const panel = document.getElementById("selector-stock");
   const select = document.getElementById("in-stock-variante");
-  const info = document.getElementById("stock-disponible");
   const producto = inventarioProductos.get(item.productoId);
   panel.style.display = "block";
   if (!producto) {
-    select.innerHTML = '<option value="">Sin control de stock</option>';
+    select.innerHTML = '<option value="">Sin variantes</option>';
     select.disabled = true;
-    info.textContent = "Este producto todavía no figura en el inventario cargado.";
     return;
   }
   const filas = filasStockProducto(item.productoId);
   if (producto.tracking_mode === "total") {
-    select.innerHTML = '<option value="TOTAL">Stock general</option>';
+    select.innerHTML = '<option value="TOTAL">General</option>';
     select.value = "TOTAL";
     select.disabled = true;
     itemSeleccionado.varianteStock = "TOTAL";
@@ -437,29 +430,10 @@ function renderSelectorStock(item) {
   actualizar();
 }
 
-function actualizarDisponibilidadSeleccion() {
-  const info = document.getElementById("stock-disponible");
-  if (!itemSeleccionado || !inventarioProductos.has(itemSeleccionado.productoId)) return;
-  const candidato = {
-    ...itemSeleccionado,
-    cajas: parseInt(document.getElementById("in-cajas").value || "0", 10) || 0,
-    unidadesPorCaja: parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0
-  };
-  const estado = estadoStockItem(candidato);
-  if (!estado.asignaciones.length) {
-    info.textContent = candidato.varianteStock ? "No hay una curva válida para esta selección." : "Elegí una variante para ver la disponibilidad.";
-    info.className = "stock-info stock-bajo";
-    return;
-  }
-  info.textContent = estado.asignaciones.map(f => `${f.variant}: pide ${f.quantity}, quedan ${f.available}`).join(" · ");
-  info.className = `stock-info ${estado.ok ? "stock-ok" : "stock-agotado"}`;
-}
-
 function recalcularUnidades() {
   const cajas = parseInt(document.getElementById("in-cajas").value || "0", 10) || 0;
   const unidCaja = parseInt(document.getElementById("in-unidcaja").value || "0", 10) || 0;
   document.getElementById("total-unid").textContent = `= ${cajas * unidCaja} unidad(es)`;
-  actualizarDisponibilidadSeleccion();
 }
 document.getElementById("in-cajas").addEventListener("input", recalcularUnidades);
 document.getElementById("in-unidcaja").addEventListener("input", recalcularUnidades);
@@ -650,11 +624,6 @@ function agregarItemAlPedido() {
     varianteStock: itemSeleccionado.varianteStock || null,
     cajas, unidadesPorCaja: unidCaja, precioUnitario: precio, observacion
   };
-  if (productoInventario && disponibilidadAsignaciones(asignacionesPedido([...pedidoItems, nuevoItem])).some(fila => !fila.ok)) {
-    alert("No alcanza el stock disponible para agregar esa cantidad.");
-    actualizarDisponibilidadSeleccion();
-    return;
-  }
   pedidoItems.push(nuevoItem);
   marcarPedidoConCambios();
   renderTablaPedido();
@@ -696,7 +665,7 @@ function renderTablaPedido() {
     tr.innerHTML = `
       <td>${celdaFotoHTML(it.imagenes, "miniatura", "miniatura-vacia")}</td>
       <td>${it.codigo || "-"}</td>
-      <td>${it.nombre}${it.enStock === false ? '<br><span class="etiqueta-sin-stock">FUERA DE STOCK</span>' : ''}</td>
+      <td>${it.nombre}</td>
       <td>${it.varianteStock ? `<strong>${escaparHTML(it.varianteStock === "SURTIDO" ? "Caja surtida" : it.varianteStock)}</strong><br>` : ""}<textarea class="observacion-item" data-idx="${i}" data-campo="observacion" placeholder="Observación">${escaparHTML(it.observacion || "")}</textarea></td>
       <td><input type="number" min="1" value="${it.cajas}" data-idx="${i}" data-campo="cajas" style="width:56px"></td>
       <td><input type="number" min="1" value="${it.unidadesPorCaja}" data-idx="${i}" data-campo="unidades" style="width:68px" ${inventarioProductos.has(it.productoId) ? "readonly" : ""}></td>
@@ -1241,14 +1210,12 @@ document.getElementById("btn-reset").addEventListener("click", () => {
 });
 
 function actualizarBarraEstado() {
-  const enStock = CATALOGO.filter(p => p.enStock !== false);
-  const sinStock = CATALOGO.length - enStock.length;
-  const conFoto = enStock.filter(p => (p.imagenes || []).length > 0).length;
-  const conCodigo = enStock.filter(p => p.codigo).length;
+  const conFoto = CATALOGO.filter(p => (p.imagenes || []).length > 0).length;
+  const conCodigo = CATALOGO.filter(p => p.codigo).length;
   const totalArticulosPrecio = Object.keys({ ...PRECIOS_BASE_MAP, ...preciosImportados }).length;
   document.getElementById("barra-estado").textContent =
-    `Catálogo: ${enStock.length} productos en stock (${conFoto} con foto, ${conCodigo} con código) · ` +
-    `${sinStock} sin stock · Precios cargados: ${totalArticulosPrecio} códigos`;
+    `Catálogo: ${CATALOGO.length} productos (${conFoto} con foto, ${conCodigo} con código) · ` +
+    `Precios cargados: ${totalArticulosPrecio} códigos`;
 }
 
 /* ==========================================================================
@@ -1274,7 +1241,7 @@ async function cargarInventario() {
 function estadoFilaStock(fila) {
   const cantidad = Number(fila.quantity || 0);
   const inicial = Number(fila.initial_quantity || 0);
-  if (cantidad <= 0) return { clave: "agotado", texto: "Agotado", clase: "stock-agotado" };
+  if (cantidad <= 0) return { clave: "agotado", texto: "Sin stock", clase: "stock-agotado" };
   if (inicial > 0 && cantidad / inicial < 0.10) return { clave: "bajo", texto: "Stock bajo", clase: "stock-bajo" };
   return { clave: "ok", texto: "Disponible", clase: "stock-ok" };
 }
@@ -1294,7 +1261,7 @@ function renderStock() {
   }).join("") || '<tr><td colspan="8">No hay resultados.</td></tr>';
   const agotados = inventarioStock.filter(fila => estadoFilaStock(fila).clave === "agotado").length;
   const bajos = inventarioStock.filter(fila => estadoFilaStock(fila).clave === "bajo").length;
-  document.getElementById("resumen-stock").textContent = `${inventarioProductos.size} productos · ${inventarioStock.length} posiciones · ${bajos} con stock bajo · ${agotados} agotadas`;
+  document.getElementById("resumen-stock").textContent = `${inventarioProductos.size} productos · ${inventarioStock.length} posiciones · ${bajos} con stock bajo · ${agotados} sin stock`;
   document.getElementById("tabla-movimientos").innerHTML = inventarioMovimientos.map(movimiento => {
     const producto = inventarioProductos.get(movimiento.product_id);
     return `<tr><td>${new Date(movimiento.created_at).toLocaleString("es-AR")}</td><td>${escaparHTML(movimiento.order_number || "-")}</td><td>${escaparHTML(producto?.name || String(movimiento.product_id))}</td><td>${escaparHTML(movimiento.variant)}</td><td class="numero ${movimiento.quantity_delta < 0 ? "stock-agotado" : "stock-ok"}">${movimiento.quantity_delta > 0 ? "+" : ""}${movimiento.quantity_delta}</td><td>${escaparHTML(movimiento.reason)}</td></tr>`;

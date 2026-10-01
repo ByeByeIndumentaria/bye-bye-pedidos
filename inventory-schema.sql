@@ -11,10 +11,15 @@ create table if not exists public.inventory_stock (
   product_id integer not null references public.inventory_products(product_id) on delete cascade,
   variant text not null default 'TOTAL',
   initial_quantity integer not null check (initial_quantity >= 0),
-  quantity integer not null check (quantity >= 0),
+  quantity integer not null,
   updated_at timestamptz not null default now(),
   primary key (product_id, variant)
 );
+
+-- El stock puede quedar negativo para registrar pedidos pendientes de reposición.
+-- Esto permite guardar siempre el pedido sin perder el conteo real.
+alter table public.inventory_stock
+  drop constraint if exists inventory_stock_quantity_check;
 
 create table if not exists public.inventory_movements (
   id bigint generated always as identity primary key,
@@ -53,7 +58,6 @@ declare
   v_id uuid := (p_order->>'id')::uuid;
   v_old jsonb;
   v_allocation jsonb;
-  v_available integer;
   v_needed integer;
   v_product integer;
   v_variant text;
@@ -82,19 +86,11 @@ begin
       v_product := (v_allocation->>'productId')::integer;
       v_variant := v_allocation->>'variant';
       v_needed := (v_allocation->>'quantity')::integer;
-      select quantity into v_available
-        from public.inventory_stock
-       where product_id = v_product and variant = v_variant
-       for update;
-      if v_available is null then
-        raise exception 'No hay stock configurado para el producto % (%).', v_product, v_variant using errcode = 'P0001';
-      end if;
-      if v_needed > v_available then
-        raise exception 'Stock insuficiente para %: disponibles %, solicitadas %.', v_variant, v_available, v_needed using errcode = 'P0001';
-      end if;
-      update public.inventory_stock
-         set quantity = quantity - v_needed, updated_at = now()
-       where product_id = v_product and variant = v_variant;
+      insert into public.inventory_stock(product_id, variant, initial_quantity, quantity, updated_at)
+      values (v_product, v_variant, 0, -v_needed, now())
+      on conflict (product_id, variant) do update
+        set quantity = public.inventory_stock.quantity + excluded.quantity,
+            updated_at = now();
       insert into public.inventory_movements(product_id, variant, quantity_delta, order_id, order_number, reason)
       values (v_product, v_variant, -v_needed, v_id, p_order->>'numero', 'Pedido confirmado');
     end loop;
